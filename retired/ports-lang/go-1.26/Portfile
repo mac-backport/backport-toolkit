@@ -15,7 +15,7 @@ description         Go ${version} backported to macOS 10.9
 long_description    Source-built Go ${version}, bootstrapped by go-1.24 and patched for Mavericks.
 
 homepage            https://go.dev
-master_sites        file:///Users/imac/backport-toolkit/distfiles/go/
+master_sites        file://~/backport-toolkit/distfiles/go/
 distfiles           go${version}.src.tar.gz
 worksrcdir          go
 checksums           rmd160  28c3b017bf610a3dd409a0bb55b68fc483724317 \

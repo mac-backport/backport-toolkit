@@ -3,7 +3,7 @@
 # nach jedem install/upgrade/activate automatisch wiederherstellt — fuer ALLE
 # installierten MacPorts-clang/llvm-Toolchains (llvm-16, llvm-19, ...), da
 # MacPorts die Config bei clang/llvm-Upgrades ueberschreibt. Nutzung wie 'port':
-#   sudo /Users/imac/backport-toolkit/bin/port install codex
+#   sudo ~/backport-toolkit/bin/port install codex
 # Immer nur gezielt benoetigte Ports bearbeiten; kein pauschales upgrade outdated.
 # Am besten ~/backport-toolkit/bin frueh in den PATH (auch fuer root/secure_path).
 REAL=/opt/local/bin/port
