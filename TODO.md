@@ -10,8 +10,11 @@ Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
       Messung: `~/Library/Caches/claude-netdebug/stalls.py <seit>`.
 - [ ] **Recaulk aus Quelle** (devel/recaulk, build/build-lib.sh: MLS-Pin v1.5.2 f89c155,
       drydock/shipyard von Mavergreen) statt Release-Binary; danach `files/mavericks/libSystemWrapper.dylib` löschen.
-- [ ] **`net/bgutil-pot-server`** (für Sofa, siehe Sofa NOTES.md): node_modules-Vendor-Tarball
-      ans Release `distfiles`.
+- [x] **`net/bgutil-pot-server`** 2.0.2 (2026-11-04): offline gebaut (vendor node_modules am Release
+      `distfiles`, Node-Header-Distfile für node-gyp, canvas nativ), LaunchDaemon als `nobody` nur auf
+      127.0.0.1:4416 (Handaufbau 1.3.1 lauschte auf allen Interfaces → nach
+      /Library/LaunchDaemons/disabled-handbuilt/). Update: neue Version → vendor-Tarball neu
+      (`npm ci --ignore-scripts`), hochladen, Checksummen. Sofa zieht das yt-dlp-Plugin selbst nach.
 - [ ] **`multimedia/sofa`** (Hauptanwendungsfall, github.com/robertkleinschuster/sofa).
 
 ## Infrastruktur

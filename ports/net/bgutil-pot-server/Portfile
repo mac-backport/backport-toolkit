@@ -1,0 +1,116 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           github 1.0
+
+# backport-toolkit overlay: the bgutil-ytdlp-pot-provider HTTP server that yt-dlp's
+# bgutil plugin asks for YouTube PO tokens. It is used by Sofa (multimedia/sofa), which
+# pins the yt-dlp plugin to the version this server reports on /ping.
+# Built fully offline from:
+#   - upstream source (GitHub archive),
+#   - a vendor tarball of server/node_modules (`npm ci --ignore-scripts`, no scripts run),
+#     hosted as a release asset of the backport-toolkit repo,
+#   - the official Node.js headers tarball (node-gyp needs common.gypi/config.gypi,
+#     which the nodejs26 overlay port does not install).
+# `canvas` (needed by jsdom for BotGuard) is compiled natively against MacPorts cairo/pango.
+github.setup        Brainicism bgutil-ytdlp-pot-provider 2.0.2
+github.tarball_from archive
+name                bgutil-pot-server
+revision            1
+
+categories          net multimedia
+license             GPL-3
+maintainers         nomaintainer
+supported_archs     x86_64
+description         YouTube PO token provider server for yt-dlp (bgutil)
+long_description    HTTP server from bgutil-ytdlp-pot-provider that generates \
+                    YouTube proof-of-origin (PO) tokens via BotGuard for the \
+                    yt-dlp bgutil plugin. Runs as a local daemon on 127.0.0.1:4416.
+
+set node_version    26.7.0
+distname            ${github.project}-${version}
+master_sites        ${github.master_sites} \
+                    https://github.com/mac-backport/backport-toolkit/releases/download/distfiles/:vendor \
+                    https://nodejs.org/dist/v${node_version}/:headers
+distfiles           ${distname}.tar.gz \
+                    ${name}-${version}-vendor.tar.gz:vendor \
+                    node-v${node_version}-headers.tar.gz:headers
+
+checksums           ${distname}.tar.gz \
+                    rmd160  402c30c7df576c84685caf4c7b68469e4070898d \
+                    sha256  1f2ae9ec39405b8e80397dfc2551f58deed09d8dff4b2b8fbc314df8e091c0a1 \
+                    size    118441 \
+                    ${name}-${version}-vendor.tar.gz \
+                    rmd160  c6f724b3fa0a395eebcef29b03b329a729a4fb24 \
+                    sha256  42756b50d3e0dd4758ae2bf81b824eb9ce49580568c966f17c363c728b2d0647 \
+                    size    34783012 \
+                    node-v${node_version}-headers.tar.gz \
+                    rmd160  20e46e61f2030d5cd3d1a45bce3068ebca577e2c \
+                    sha256  00ef24b4724342592aa7a14f9105282a59a7397c8ff7a28166243f5029ce2217 \
+                    size    10305824
+
+depends_build       port:npm11 \
+                    port:python314 \
+                    port:pkgconfig
+depends_lib         port:nodejs26 \
+                    path:lib/pkgconfig/cairo.pc:cairo \
+                    path:lib/pkgconfig/pango.pc:pango \
+                    port:libpng \
+                    path:include/turbojpeg.h:libjpeg-turbo \
+                    port:giflib \
+                    port:librsvg
+
+compiler.whitelist  macports-clang-22
+
+set srvdir          ${worksrcpath}/server
+set libexecdir      ${prefix}/libexec/${name}
+
+post-extract {
+    # vendor/node_modules (second distfile) into the server tree
+    move ${workpath}/node_modules ${srvdir}/node_modules
+}
+
+use_configure       no
+
+build {
+    set benv "env HOME=${workpath}/.home npm_config_offline=true npm_config_update_notifier=false \
+             CC=${configure.cc} CXX=${configure.cxx} PYTHON=${prefix}/bin/python3.14 \
+             PATH=${prefix}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    # native canvas addon (N-API) against MacPorts cairo/pango, headers from the distfile
+    system -W ${srvdir}/node_modules/canvas "${benv} ${prefix}/bin/node \
+        ${prefix}/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild \
+        --nodedir=${workpath}/node-v${node_version}"
+    # TypeScript -> build/ (devDependencies come from the vendor tarball)
+    system -W ${srvdir} "${benv} ./node_modules/.bin/tsc"
+    # drop devDependencies again (offline)
+    system -W ${srvdir} "${benv} ${prefix}/bin/npm prune --omit=dev --offline --no-audit --no-fund"
+}
+
+destroot {
+    xinstall -d ${destroot}${libexecdir}
+    copy ${srvdir}/build ${srvdir}/node_modules ${destroot}${libexecdir}/
+    xinstall -m 0644 ${srvdir}/package.json ${destroot}${libexecdir}/
+    xinstall -d ${destroot}${prefix}/share/doc/${name}
+    xinstall -m 0644 ${worksrcpath}/LICENSE ${worksrcpath}/README.md ${destroot}${prefix}/share/doc/${name}/
+
+    # launcher: only on loopback by default (only local yt-dlp needs it)
+    set f [open ${destroot}${prefix}/bin/${name} w]
+    puts $f "#!/bin/sh"
+    puts $f "exec ${prefix}/bin/node ${libexecdir}/build/main.js --host 127.0.0.1 \"\$@\""
+    close $f
+    file attributes ${destroot}${prefix}/bin/${name} -permissions 0755
+}
+
+# LaunchDaemon (port load bgutil-pot-server), unprivileged: the server writes no files
+startupitem.create      yes
+startupitem.executable  ${prefix}/bin/${name}
+startupitem.user        nobody
+# own log dir, writable by the daemon user (nobody may not write ${prefix}/var/log)
+startupitem.logfile     ${prefix}/var/log/${name}/${name}.log
+destroot.keepdirs       ${destroot}${prefix}/var/log/${name}
+
+post-destroot {
+    xinstall -d -o nobody -g nobody -m 0755 ${destroot}${prefix}/var/log/${name}
+}
+
+livecheck.type      none
