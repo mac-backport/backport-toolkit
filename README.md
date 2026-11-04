@@ -21,7 +21,13 @@ language runtimes and current apps — built from source on the Mac itself, runn
 My main reason for all of this is **[Sofa](https://github.com/robertkleinschuster/sofa)** —
 a native smart-TV app that turns an old iMac into a web TV, operated with the little
 Apple Remote. Sofa needs a modern toolchain (clang-22), a current libcurl/OpenSSL for
-TLS 1.3, `mpv`/libmpv for VP9/AV1 and Python/yt-dlp — all coming from this overlay.
+TLS 1.3, `mpv`/libmpv for VP9/AV1, Python/yt-dlp and Node.js — all coming from this overlay.
+
+[![Sofa on an old iMac: home screen with YouTube, ZDF, ARD, ORF ON and media.ccc.de](https://raw.githubusercontent.com/robertkleinschuster/sofa/master/docs/screenshots/home.jpg)](https://github.com/robertkleinschuster/sofa)
+
+```sh
+sudo port -n install sofa
+```
 
 ## Bootstrap a fresh 10.9 Mac
 
