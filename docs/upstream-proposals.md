@@ -14,10 +14,17 @@ Not upstream yet, candidates for a PR (sources in `ports/devel/legacy-support/fi
 |---|---|---|
 | `qos.h` + `pthread_qos.c` | `<sys/qos.h>` (`qos_class_t`, `QOS_CLASS_*`) and no-op `pthread_set_qos_class_self_np` / `pthread_attr_set_qos_class_np` / `qos_class_self` for < 10.10 | LLVM 19+, Rust std, Node/V8 |
 | `dispatch_compat.c` | `dispatch_workloop_create[_inactive]`, `dispatch_queue_create_with_target$V2`, `dispatch_set_qos_class_floor` mapped to plain serial queues | Rust/Tokio-based prebuilt tools, Codex |
-| `_mbstate_t.h` | `mbstate_t` include guard for headers that expect the newer SDK layout | LLVM 21/22 libc++ |
 
 Before a PR: tests in MLS style (`test/`), behaviour on 10.4–10.9 builders, and the
 gating macros MLS uses (`__MPLS_SDK_SUPPORT_*`, `__MPLS_LIB_SUPPORT_*`).
+
+**Redundancy check first (lesson from #138):** does an existing MacPorts port already fix
+the problem (e.g. `lang/llvm-NN/files/*.patch`), and would that fix have to stay anyway?
+Then a MLS change only duplicates it and adds risk on untested systems — don't submit.
+The `_mbstate_t.h` wrapper was submitted as macports-legacy-support#138 and withdrawn the
+same day for exactly this reason (llvm's `0042-mbstate_t-not-defined.patch` covers every
+MacPorts clang and must stay for ports without legacysupport). `qos.h` needs the same check
+against llvm's `0110-Avoid-Pthread-QOS.patch` and the Rust/Node ports before any PR.
 
 ## Ports
 
