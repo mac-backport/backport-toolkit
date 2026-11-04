@@ -3,13 +3,13 @@
 Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
 
 ## Ports
-- [ ] **`recaulk`-Port** (devel/recaulk) aus Quelle (github.com/Mavergreen/recaulk, build/build-lib.sh:
-      MLS-Pin v1.5.2 f89c155, drydock/shipyard) und `llm/claude-code` darauf umstellen statt
-      `files/mavericks/libSystemWrapper.dylib`. Grund: die kevent64-Stash-Logik des alten
-      libSystemWrapper verliert EVFILT_READ-Events → Claude „Connection dropped (ECONNRESET)“.
-      Mit dem Recaulk-Prebuilt seit 2026-11-04 07:20: 0 Hänger (vorher 61/90 neue Verbindungen).
-      Messung: `~/Library/Caches/claude-netdebug/stalls.py <seit>`. Achtung: bis dahin
-      überschreibt `port -n upgrade/activate claude-code` das interimistisch getauschte libS.dylib.
+- [x] **Claude-ECONNRESET dauerhaft behoben** (2026-11-04, claude-code rev 1): Port bezieht
+      `libRecaulkSystem.dylib` aus dem Mavergreen/recaulk-Release (checksummed .pkg, nur die
+      Bibliotheks-Komponente) statt `files/mavericks/libSystemWrapper.dylib`. Ursache: dessen
+      kevent64-Stash verlor EVFILT_READ → 61/90 neue TLS-Verbindungen hingen 16 s; mit Recaulk 0.
+      Messung: `~/Library/Caches/claude-netdebug/stalls.py <seit>`.
+- [ ] **Recaulk aus Quelle** (devel/recaulk, build/build-lib.sh: MLS-Pin v1.5.2 f89c155,
+      drydock/shipyard von Mavergreen) statt Release-Binary; danach `files/mavericks/libSystemWrapper.dylib` löschen.
 - [ ] **`net/bgutil-pot-server`** (für Sofa, siehe Sofa NOTES.md): node_modules-Vendor-Tarball
       ans Release `distfiles`.
 - [ ] **`multimedia/sofa`** (Hauptanwendungsfall, github.com/robertkleinschuster/sofa).

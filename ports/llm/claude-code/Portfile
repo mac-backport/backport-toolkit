@@ -12,6 +12,9 @@
 #          + @loader_path-Shims + libdropinsert aus Quelle
 #   [10.9] Launch-Script: libavxemu via DYLD-Insert + libdropinsert (kein env-Leak)
 #   [10.9] computer-use-MCP (mavericksforever) verdrahtet
+#   [10.9] libS.dylib = Recaulk (Mavergreen) statt altem libSystemWrapper: dessen
+#          kevent64-Stash verlor EVFILT_READ-Events -> "Connection dropped (ECONNRESET)"
+#          (61/90 neue TLS-Verbindungen 16 s haengend; mit Recaulk 0). Quellbuild: TODO.md.
 # Update (Doktrin: immer -n): version-Zeile setzen -> `sudo port bump claude-code`
 #          -> `sudo port -n upgrade --force claude-code`. Rollback: port activate @alt.
 # Hintergrund libavxemu/libdropinsert: files/mavericks + NOTES-libavxemu-env-leak.md
@@ -20,7 +23,9 @@ PortSystem          1.0
 
 name                claude-code
 version             2.1.316
-revision            0
+revision            1
+# Mavergreen/recaulk-Release (libRecaulkSystem.dylib, Symbol-Obermenge von libSystemWrapper)
+set recaulk_version 20261025.5
 
 categories          llm
 maintainers         nomaintainer
@@ -42,20 +47,35 @@ homepage            https://claude.com/product/claude-code
 # GCS-Bucket-URL aus https://claude.ai/install.sh (wie Upstream)
 set claude_code_releases https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases
 set arch_classifier x64
-master_sites        ${claude_code_releases}/${version}/darwin-${arch_classifier}/
-
-checksums           rmd160  69abbfb3164d814690d19aa4bcd6716c69c87f86 \
-                    sha256  203d22fbafdab9f6b0cda962ec573e32ab970894c63b1dfb0409378f28b9c344 \
-                    size    324381312
+master_sites        ${claude_code_releases}/${version}/darwin-${arch_classifier}/ \
+                    https://github.com/Mavergreen/recaulk/releases/download/${recaulk_version}/:recaulk
 
 distname            claude
 dist_subdir         ${name}/${version}-${os.platform}-${arch_classifier}
+distfiles           ${distname}:main \
+                    recaulk-${recaulk_version}.pkg:recaulk
+master_sites-delete ${claude_code_releases}/${version}/darwin-${arch_classifier}/
+master_sites-append ${claude_code_releases}/${version}/darwin-${arch_classifier}/:main
+
+checksums           ${distname} \
+                    rmd160  69abbfb3164d814690d19aa4bcd6716c69c87f86 \
+                    sha256  203d22fbafdab9f6b0cda962ec573e32ab970894c63b1dfb0409378f28b9c344 \
+                    size    324381312 \
+                    recaulk-${recaulk_version}.pkg \
+                    rmd160  e20e6a218e3828222ffdc079bccd1dc6ef4c7e83 \
+                    sha256  6fa1e8a2d6198cb29cda2c1c98606f41e9dfb7f66e18b690bb97da3bf07ec5a1 \
+                    size    1079591
 
 extract.suffix
 extract {
     # Raw Mach-O, kein Archiv: heruntergeladenes distfile in den worksrcpath kopieren
     xinstall -d ${worksrcpath}
-    xinstall -m 755 ${distpath}/${distfiles} ${worksrcpath}/claude
+    xinstall -m 755 ${distpath}/${distname} ${worksrcpath}/claude
+    # [10.9] Recaulk-Paket auspacken (nur die Komponente mit der Bibliothek, nicht
+    # Updater/LaunchAgent des Installers)
+    system -W ${workpath} "/usr/sbin/pkgutil --expand ${distpath}/recaulk-${recaulk_version}.pkg recaulk-pkg"
+    xinstall -d ${workpath}/recaulk
+    system -W ${workpath}/recaulk "/usr/bin/gzip -dc ../recaulk-pkg/recaulk-component.pkg/Payload | /usr/bin/cpio -id --quiet"
 }
 
 use_configure       no
@@ -66,7 +86,8 @@ set mavdir          ${prefix}/libexec/${name}
 # [10.9] Upstream hat leeres build{}. Hier: Binary EINMAL patchen + Shims bereitstellen.
 build {
     # Mavericks-Shims neben das Binary (fuer @loader_path); grosses libicucore gzip
-    file copy -force ${mav}/libSystemWrapper.dylib ${worksrcpath}/libS.dylib
+    file copy -force ${workpath}/recaulk/usr/local/mavergreen/recaulk/lib/libRecaulkSystem.dylib ${worksrcpath}/libS.dylib
+    system -W ${worksrcpath} "/usr/bin/install_name_tool -id @loader_path/libS.dylib libS.dylib"
     file copy -force ${mav}/libc++.1.dylib         ${worksrcpath}/libc++.1.dylib
     file copy -force ${mav}/libc++abi.1.dylib      ${worksrcpath}/libc++abi.1.dylib
     file copy -force ${mav}/libavxemu.dylib        ${worksrcpath}/libavxemu.dylib
