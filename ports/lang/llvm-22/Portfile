@@ -55,7 +55,7 @@ compiler.blacklist-append {clang < 1204} {macports-clang-[5-9].0} {macports-clan
 if {${os.major} >= 17 || ${os.platform} ne "darwin"} {
     compiler.fallback   clang macports-clang-17
 } else {
-    # backport-toolkit overlay: Self-Hosting — clang-22 baut sich selbst (kein
+    # backport-toolkit overlay: Self-Hosting - clang-22 baut sich selbst (kein
     # Alt-clang mehr installiert; 14/16/19/21 seit 2026-08-28 geloescht). clang-22
     # ist base-only + liest externe cfg (CLANG_CONFIG_FILE_SYSTEM_DIR) -> sauber.
     compiler.fallback   clang macports-clang-22
