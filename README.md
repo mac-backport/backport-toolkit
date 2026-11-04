@@ -14,7 +14,7 @@ language runtimes and current apps — built from source on the Mac itself, runn
 | 10.9 shim | `legacy-support` (MacportsLegacySupport with extra 10.10–10.15 APIs) |
 | Languages | `rust` 1.95 + `cargo` (self-hosting), `rust-backport`, `go-1.27`, `nodejs26` |
 | Tools | `gh`, `ripgrep`, `util-linux`, `codex`, `claude-code` (10.9 override) |
-| Apps | `mpv` / libmpv 0.41, `tailscale`, `firefox-x11` (ESR, GTK3/X11, WIP), `kodi`, `zathura`, `rustdesk-mavericks` |
+| Apps | `mpv` / libmpv 0.41, `tailscale`, `firefox-x11` (ESR, GTK3/X11, WIP), `zathura`, `rustdesk-mavericks` |
 
 ## Main use case: Sofa
 
