@@ -28,6 +28,19 @@ against llvm's `0110-Avoid-Pthread-QOS.patch` and the Rust/Node ports before any
 
 ## Ports
 
+Vetted 2026-11-04 (all overlay ports vs. macports-ports master). Almost everything is
+deliberately gated upstream to newer macOS, depends on our other backports, or is already
+fixed. Remaining candidates, each only after the stated check:
+
+- **office/zathura** `patch-girara-argument-order.diff`: upstream port (nomaintainer) fails
+  on 14/15/26 since girara 0.4.3 swapped `girara_argument_t`. Check a builder log first.
+- **devel/util-linux** 2.42.2 fails on 10.9/10.10; fixed upstream only on master
+  (`34625df4ee`, lib/procfs uint64_t). Check the 10.9 builder log; submit a backport of that
+  commit, not our own patch.
+- **macports-ports#35741** (clang 19–23 for 10.6+) ships libc++abi linked to LLVM libunwind,
+  the configuration we suspected for the Kodi crash. A minimal reproducer did NOT crash with
+  our old identical build, so: no comment (unproven claim).
+
 - `gh`: the official port repackages the 10.10+ binary below macOS 13. A source build
   needs a Go that runs on 10.9; that only exists here (`go-1.27` backport), so this is not
   upstreamable on its own.

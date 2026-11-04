@@ -309,6 +309,10 @@ if { ${subport} eq "clang-${llvm_version}" } {
     # laeuft (Kodi: jede Python-Addon-Exception). Alle 8 von libc++abi/libc++
     # benoetigten _Unwind_*-Symbole exportiert das 10.9-libunwind (geprueft). libunwind
     # selbst wird weiter gebaut (macports-libcxx paketiert es fuer Kompatibilitaet).
+    # NACHTRAG 2026-11-04: Minimal-Reproducer (throw durch Cleanup-Frames, Rethrow,
+    # dylib-Grenze, C-Frames dazwischen, 1000x) crasht mit dem alten macports-libcxx
+    # 22.1.8_0 (USE_LLVM_UNWINDER=ON) NICHT -> der Kodi-Crash braucht eine weitere,
+    # unbekannte Bedingung; die Erklaerung oben ist unvollstaendig. OFF bleibt (Kodi laeuft).
     configure.args-append \
         -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
 
