@@ -1,0 +1,30 @@
+PortSystem          1.0
+name                rustdesk-mavericks
+version             1.4.4
+revision            2
+categories          net
+platforms           darwin
+supported_archs     x86_64
+license             AGPL-3
+maintainers         nomaintainer
+description         Local Mavericks backport of RustDesk with Tailscale-only service mode
+long_description    Locally built and audited x86_64 RustDesk with Sciter and OS X 10.9 compatibility patches.
+homepage            https://rustdesk.com/
+# prebuilt, locally audited app bundle = release asset of the backport-toolkit repo
+master_sites        https://github.com/mac-backport/backport-toolkit/releases/download/distfiles/
+checksums           sha256 b104f411f372888898befa99261067b2adbd225e62dc13a74dc6084719c2f001 \
+                    size 33308543
+distname            ${name}-${version}_${revision}
+destroot.violate_mtree yes
+use_configure       no
+build {}
+depends_lib         port:libvpx port:aom port:libyuv port:libiconv port:macports-libcxx
+destroot {
+    xinstall -d ${destroot}/Applications
+    copy ${worksrcpath}/RustDesk.app ${destroot}/Applications/RustDesk.app
+    xinstall -d ${destroot}${prefix}/share/doc/${name}
+    foreach file {com.carriez.RustDesk_service.plist com.carriez.RustDesk_server.plist install-services.py} {
+        xinstall -m 0644 ${worksrcpath}/${file} ${destroot}${prefix}/share/doc/${name}/${file}
+    }
+}
+livecheck.type      none

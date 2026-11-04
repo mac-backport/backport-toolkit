@@ -1,0 +1,20 @@
+--- dom/workers/RuntimeService.cpp.orig
++++ dom/workers/RuntimeService.cpp
+@@ -72,7 +72,7 @@
+ #include "nsXPCOMPrivate.h"
+ #include "xpcpublic.h"
+ 
+-#if defined(XP_MACOSX)
++#ifdef MOZ_WIDGET_COCOA
+ #  include "nsMacUtilsImpl.h"
+ #endif
+ 
+@@ -2122,7 +2122,7 @@
+   // other worker has initialized numberOfProcessors, so we're good to go.
+   if (!unclampedHardwareConcurrency) {
+     int32_t numberOfProcessors = 0;
+-#if defined(XP_MACOSX)
++#if defined(MOZ_WIDGET_COCOA)
+     if (nsMacUtilsImpl::IsTCSMAvailable()) {
+       // On failure, zero is returned from GetPhysicalCPUCount()
+       // and we fallback to PR_GetNumberOfProcessors below.

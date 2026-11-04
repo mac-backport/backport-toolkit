@@ -1,0 +1,15 @@
+--- gfx/layers/ImageContainer.h.orig
++++ gfx/layers/ImageContainer.h
+@@ -88,6 +88,12 @@
+ #elif MOZ_WIDGET_GTK
+ class DMABUFSurfaceImage;
+ #endif
++// MacPorts firefox-x11 10.9-Backport: Darwin+GTK ist ein untypischer Combo; die
++// obige elif-Kette deklariert DMABUFSurfaceImage nur wenn NICHT XP_DARWIN, aber
++// unten nutzt #ifdef MOZ_WIDGET_GTK es. Forward-Decl fuer den Combo nachreichen.
++#if defined(MOZ_WIDGET_GTK) && defined(XP_DARWIN)
++class DMABUFSurfaceImage;
++#endif
+ 
+ /**
+  * A class representing a buffer of pixel data. The data can be in one

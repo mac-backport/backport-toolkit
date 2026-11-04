@@ -1,0 +1,12 @@
+--- toolkit/moz.configure.orig
++++ toolkit/moz.configure
+@@ -551,7 +551,8 @@
+     if target.os == "WINNT":
+         return ("cairo-windows",)
+     elif target.os == "OSX":
+-        return ("cairo-cocoa",)
++        # MacPorts firefox-x11: GTK3/X11 (XQuartz) auf Darwin erlauben; cocoa bleibt Default
++        return ("cairo-cocoa", "cairo-gtk3", "cairo-gtk3-x11-only")
+     elif target.os == "iOS":
+         return ("cairo-uikit",)
+     elif target.os == "Android":

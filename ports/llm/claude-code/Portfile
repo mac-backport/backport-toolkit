@@ -1,0 +1,126 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+#
+# LOKALE 10.9-BACKPORT-OVERRIDE des offiziellen MacPorts-Ports llm/claude-code
+# (Upstream-Maintainer: breun @breun). Gleicher Name/Kategorie -> schattet den
+# Baum-Port im Overlay. Notwendig, weil der offizielle Port `platforms {darwin >= 22}`
+# (macOS 13+) verlangt und auf diesem Darwin 13 (10.9) gar nicht installiert.
+#
+# Struktur 1:1 vom Upstream uebernommen (license/extract/test/DISABLE_UPDATES/
+# livecheck/variant). 10.9-DELTAS klar markiert:
+#   [10.9] platforms-Gate geloescht (Darwin 13 zulassen)
+#   [10.9] build{}: Mavericks-Mach-O-Patch (patch_macho/add_version_min/change_dylib)
+#          + @loader_path-Shims + libdropinsert aus Quelle
+#   [10.9] Launch-Script: libavxemu via DYLD-Insert + libdropinsert (kein env-Leak)
+#   [10.9] computer-use-MCP (mavericksforever) verdrahtet
+# Update (Doktrin: immer -n): version-Zeile setzen -> `sudo port bump claude-code`
+#          -> `sudo port -n upgrade --force claude-code`. Rollback: port activate @alt.
+# Hintergrund libavxemu/libdropinsert: files/mavericks + NOTES-libavxemu-env-leak.md
+
+PortSystem          1.0
+
+name                claude-code
+version             2.1.316
+revision            0
+
+categories          llm
+maintainers         nomaintainer
+license             Restrictive NoMirror
+# [10.9] nur x86_64 (Mavericks-Shims + libavxemu sind x86-spezifisch)
+supported_archs     x86_64
+
+description         Claude Code -- Anthropic's agentic coding tool (macOS 10.9 backport)
+long_description    Claude Code is an agentic coding tool that lives in your \
+                    terminal, understands your codebase, and helps you code \
+                    faster. Diese Overlay-Variante ist der offizielle Port, \
+                    fuer macOS 10.9 zurueckportiert (Mavericks-Dylib-Wrapper + \
+                    libavxemu-AVX2-Emulation), mit abgeschaltetem Self-Updater.
+homepage            https://claude.com/product/claude-code
+
+# [10.9] Upstream hat `platforms {darwin >= 22}` (macOS 13+). Hier bewusst WEGGELASSEN
+# (Default = alle darwin) -> laeuft auf Darwin 13 (10.9).
+
+# GCS-Bucket-URL aus https://claude.ai/install.sh (wie Upstream)
+set claude_code_releases https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases
+set arch_classifier x64
+master_sites        ${claude_code_releases}/${version}/darwin-${arch_classifier}/
+
+checksums           rmd160  69abbfb3164d814690d19aa4bcd6716c69c87f86 \
+                    sha256  203d22fbafdab9f6b0cda962ec573e32ab970894c63b1dfb0409378f28b9c344 \
+                    size    324381312
+
+distname            claude
+dist_subdir         ${name}/${version}-${os.platform}-${arch_classifier}
+
+extract.suffix
+extract {
+    # Raw Mach-O, kein Archiv: heruntergeladenes distfile in den worksrcpath kopieren
+    xinstall -d ${worksrcpath}
+    xinstall -m 755 ${distpath}/${distfiles} ${worksrcpath}/claude
+}
+
+use_configure       no
+
+set mav             ${filespath}/mavericks
+set mavdir          ${prefix}/libexec/${name}
+
+# [10.9] Upstream hat leeres build{}. Hier: Binary EINMAL patchen + Shims bereitstellen.
+build {
+    # Mavericks-Shims neben das Binary (fuer @loader_path); grosses libicucore gzip
+    file copy -force ${mav}/libSystemWrapper.dylib ${worksrcpath}/libS.dylib
+    file copy -force ${mav}/libc++.1.dylib         ${worksrcpath}/libc++.1.dylib
+    file copy -force ${mav}/libc++abi.1.dylib      ${worksrcpath}/libc++abi.1.dylib
+    file copy -force ${mav}/libavxemu.dylib        ${worksrcpath}/libavxemu.dylib
+    system -W ${worksrcpath} "/usr/bin/gzip -dc ${mav}/libicucoreWrapper.dylib.gz > libI.dylib"
+    # libdropinsert aus Quelle (entfernt DYLD_INSERT_LIBRARIES fuer Kindprozesse)
+    system -W ${worksrcpath} "/usr/bin/cc -dynamiclib -O2 -o libdropinsert.dylib ${mav}/libdropinsert.c"
+    # Binary patchen: patch_macho -> add_version_min -> change_dylib (KEIN libA,
+    # libavxemu laeuft per Insert; Linken haengt beim Start -- verifiziert 2026-09-02)
+    system -W ${worksrcpath} "${mav}/patch_macho claude claude.mf"
+    system -W ${worksrcpath} "${mav}/add_version_min claude.mf"
+    system -W ${worksrcpath} "${mav}/change_dylib claude.mf -grow \
+        -change /usr/lib/libSystem.B.dylib  @loader_path/libS.dylib \
+        -change /usr/lib/libicucore.A.dylib @loader_path/libI.dylib \
+        -change /usr/lib/libc++.1.dylib     @loader_path/libc++.1.dylib"
+    file delete ${worksrcpath}/claude
+    file rename ${worksrcpath}/claude.mf ${worksrcpath}/claude
+    system -W ${worksrcpath} "/bin/chmod +x claude"
+}
+
+# Upstream-Test, [10.9]-angepasst: gepatchtes Binary braucht den DYLD-Insert.
+test.run            yes
+test.dir            ${worksrcpath}
+test.cmd            ./claude
+test.target
+test.args           --version
+test.env-append     DYLD_INSERT_LIBRARIES=${worksrcpath}/libavxemu.dylib:${worksrcpath}/libdropinsert.dylib
+
+variant telemetry description {Allow Claude Code to send anonymous usage telemetry to Anthropic} {}
+
+destroot {
+    xinstall -d ${destroot}${mavdir} ${destroot}${mavdir}/computer-use ${destroot}${prefix}/bin
+
+    # gepatchtes Binary + beigestellte @loader_path-Shims (aus worksrcpath)
+    foreach f {claude libS.dylib libI.dylib libc++.1.dylib libc++abi.1.dylib libavxemu.dylib libdropinsert.dylib} {
+        xinstall -m 0755 ${worksrcpath}/${f} ${destroot}${mavdir}/${f}
+    }
+
+    # [10.9] computer-use-MCP (mavericksforever) + Managed-Settings
+    xinstall -m 0755 ${mav}/computer-use/mcp_server.py  ${destroot}${mavdir}/computer-use/mcp_server.py
+    xinstall -m 0644 ${mav}/computer-use/cu_actions.py  ${destroot}${mavdir}/computer-use/cu_actions.py
+    xinstall -m 0644 ${mav}/settings.json               ${destroot}${mavdir}/settings.json
+    xinstall -m 0644 ${filespath}/mcp-config.json.in    ${destroot}${mavdir}/mcp-config.json
+    reinplace "s|__MAVDIR__|${mavdir}|g"                ${destroot}${mavdir}/mcp-config.json
+
+    # Launch-Script (Upstream-Muster: env + exec), 10.9-Insert-Logik
+    xinstall -m 0755 ${filespath}/claude.wrapper.in     ${destroot}${prefix}/bin/claude
+    reinplace "s|__MAVDIR__|${mavdir}|g"                ${destroot}${prefix}/bin/claude
+    if {[variant_isset telemetry]} {
+        reinplace "s|^__TELEMETRY__.*||"                ${destroot}${prefix}/bin/claude
+    } else {
+        reinplace "s|^__TELEMETRY__|export DISABLE_TELEMETRY=1|" ${destroot}${prefix}/bin/claude
+    }
+}
+
+livecheck.type      regex
+livecheck.url       ${claude_code_releases}/latest
+livecheck.regex     ^(\[\\d.\]+)$

@@ -1,0 +1,224 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           github 1.0
+PortGroup           makefile 1.0
+
+name                legacy-support
+categories          devel
+
+maintainers         {mascguy @mascguy} \
+                    {fwright.net:fw @fhgwright} \
+                    openmaintainer
+license             MIT BSD APSL-2
+
+description         Installs wrapper headers and a runtime library to add \
+                    missing functionality to legacy OSX versions.
+long_description    {*}${description}
+
+# Introduced to roll back to 1.0.13 release due to issues with 1.1.0.
+# Must now stay.
+epoch               1
+
+# Primary release version
+set release_ver     1.5.2
+
+# Binary compatibility version
+set compat_ver      1.0.0
+
+subport ${name} {
+    conflicts           ${name}-devel
+    github.setup        macports macports-legacy-support ${release_ver} v
+    github.tarball_from archive
+    # backport-toolkit overlay: bumped for the natively-integrated 10.9 symbol
+    # extensions + the self-contained <sys/_types/_mbstate_t.h> shim added in
+    # post-patch below. Keeps it a minimal, documented delta over upstream.
+    # rev3: aligned_alloc declaration added to stdlib.h wrapper.
+    # rev4: mkostemp() symbol (src/mkostemp.c) + stdlib.h declaration added.
+    # rev5: QoS enum (qos_class_t + QOS_CLASS_*) added to pthread.h wrapper.
+    # rev6: <sys/qos.h> shim (files/qos.h) added; pthread.h qos_class_t now guarded
+    #       with __MPLS_QOS_CLASS_T_DEFINED so both headers can coexist in one TU.
+    # rev7: QoS override API (pthread_override_t + pthread_override_qos_class_start/
+    #       end_np) added as no-ops (pthread_qos.c) + pthread.h decls; used by
+    #       Firefox dom/ipc/ProcessHangMonitor.cpp.
+    revision            7
+    checksums           rmd160  58a9837f78a72cb2204d674cc41e028b10bff71b \
+                        sha256  16da882281d26d8ddfb434acfde0828fc3e4119aab332445f65688ae879e9962 \
+                        size    228427
+}
+
+subport ${name}-devel {
+    conflicts           ${name}
+    github.setup        macports macports-legacy-support \
+                        f89c155cbc2ca8714e4ada66c11b222353e8d87a
+    github.tarball_from archive
+    version             20250924
+    revision            0
+    livecheck.type      none
+    checksums           rmd160  3d6ca0af242f859e201c387bde0b0e9aa6ce7883 \
+                        sha256  37c8483ac0594a009e1509f4ddd2eff42c4707cedba58a8ec34bcf779834e144 \
+                        size    228476
+    set v_split         [split ${release_ver} .]
+    set release_ver     [lindex ${v_split} 0].[lindex ${v_split} 1].99
+}
+
+# Set up proper arch list for build and test
+if {![variant_isset universal]} {
+    set archs       ${configure.build_arch}
+} else {
+    set archs       ${configure.universal_archs}
+}
+
+# Let the Makefile handle the archs setup
+configure.cc_archflags
+configure.cxx_archflags
+configure.ld_archflags
+configure.universal_cflags
+configure.universal_cxxflags
+configure.universal_ldflags
+
+# Pass the arch list to the Makefile
+build.env-append        ARCHS=${archs}
+destroot.env-append     ARCHS=${archs}
+test.env-append         ARCHS=${archs}
+
+# Set test target for optional universal handling
+# For some reason, setting test.target doesn't work.
+test.pre_args       test_unv
+
+# Enable parallel tests
+default test.jobs   ${build.jobs}
+test.post_args      -j${test.jobs}
+
+# The makefile PG brings in the unnecessary compiler_wrapper PG.
+# Disable it to reduce logfile clutter and obfuscation.
+#
+compwrap.compilers_to_wrap
+
+# This port doesn't use C++ at all, except for two very limited tests
+# that are manual-only.  Disabling cxx_stdlib avoids unnessary compiler
+# constraints on some platforms.
+#
+configure.cxx_stdlib
+
+build.env-append    SOCURVERSION=${release_ver} \
+                    SOCOMPATVERSION=${compat_ver}
+
+# Include Tiger-specific additions
+platform darwin 8 {
+    build.target-append     tiger-bins
+    destroot.target-append  install-tiger
+
+    # Avoid troublesome Xcode 2.5 linker on 10.4
+    configure.compiler      apple-gcc-4.2
+}
+
+# Include Leopard-specific additions
+platform darwin 9 {
+    build.target-append     leopard-bins
+    destroot.target-append  install-leopard
+}
+
+test.env            {*}${build.env}
+test.run            yes
+test.target         test
+
+if {![file exists ${prefix}/libexec/mpstats]} {
+    notes "
+    To help make sure your system continues to be well-represented by\
+    MacPorts, especially if your system is not one of the latest macOS\
+    releases, please consider installing mpstats.  It will periodically\
+    send an anonymous synopsis of your OS settings and installed ports.\
+    The information provided by this is useful to help determine how\
+    resources are allocated.
+
+    You can install mpstats like this:    sudo port install mpstats
+    "
+}
+
+# ---------------------------------------------------------------------------
+# backport-toolkit: native 10.9 symbol extensions
+#
+# MacportsLegacySupport's src/Makefile globs src/*.c into both the static (.a)
+# and dynamic (.dylib) libraries.  We drop in a few additional MLS-idiomatic,
+# per-target-guarded translation units that provide libSystem/CommonCrypto/
+# libdispatch symbols missing on 10.9 but referenced by modern toolchains
+# (clang/LLVM, Rust std).  This folds the former standalone "macos109_extras"
+# shim into MLS itself, so a single `PortGroup legacysupport` (or the static
+# link used by `PortGroup rust`) delivers everything — no global compiler cfg,
+# no version-based split.  Each file self-guards via __MPLS_TARGET_OSVER and
+# compiles to nothing on systems new enough to have the symbol.
+post-patch {
+    foreach f {ccrandom.c aligned_alloc.c pthread_qos.c dispatch_compat.c mkostemp.c} {
+        xinstall -m 0644 ${filespath}/${f} ${worksrcpath}/src/${f}
+    }
+    # Self-contained <sys/_types/_mbstate_t.h> shim (see file header). Installed
+    # into the LegacySupport include tree so -isystem picks it up before the
+    # non-self-contained 10.9 SDK header. Fixes the __darwin_mbstate_t wall
+    # toolkit-wide for modern-libc++ C++ builds.
+    xinstall -d ${worksrcpath}/include/sys/_types
+    xinstall -m 0644 ${filespath}/_mbstate_t.h \
+        ${worksrcpath}/include/sys/_types/_mbstate_t.h
+
+    # backport-toolkit overlay: <sys/qos.h> shim (macOS 10.10+ header, absent on
+    # 10.9). Provides qos_class_t + QOS_CLASS_* for modern sources that
+    # `#include <sys/qos.h>` (Firefox dom/ipc/*, ...). Typedef shared with the
+    # pthread.h wrapper via __MPLS_QOS_CLASS_T_DEFINED (see qos.h header comment).
+    xinstall -m 0644 ${filespath}/qos.h \
+        ${worksrcpath}/include/sys/qos.h
+
+    # backport-toolkit overlay: aligned_alloc (C11, erst ab macOS 10.15) DEKLARIEREN.
+    # MLS liefert das Symbol (src/aligned_alloc.c), aber upstream deklariert es in
+    # keinem Header -> ein moderner libc++-runtimes-Build auf 10.9 bricht mit
+    # "no member named 'aligned_alloc' in the global namespace". Deklaration
+    # idiomatisch (wie posix_memalign) im stdlib.h-Wrapper ergaenzen, direkt
+    # gegated auf SDK < 10.15. Tcl-String-Insert statt reinplace, weil BSD-sed
+    # keine \n im Replacement kann. Entfernen, sobald Upstream-MLS es selbst tut.
+    set _sdh ${worksrcpath}/include/stdlib.h
+    set _fh [open ${_sdh} r]; set _d [read ${_fh}]; close ${_fh}
+    set _guard "#endif /* _MACPORTS_STDLIB_H_ */"
+    set _decl "/* aligned_alloc (C11, since 10.15); symbol from MLS src/aligned_alloc.c */\n#if __MPLS_SDK_MAJOR < 101500\n__MP__BEGIN_DECLS\nextern void *aligned_alloc(size_t __alignment, size_t __size);\n__MP__END_DECLS\n#endif\n\n${_guard}"
+    if {[string first ${_guard} ${_d}] < 0} {
+        ui_error "legacy-support overlay: stdlib.h include guard not found — aligned_alloc decl not inserted"
+        return -code error "aligned_alloc decl anchor missing"
+    }
+    set _d [string map [list ${_guard} ${_decl}] ${_d}]
+    set _fh [open ${_sdh} w]; puts -nonewline ${_fh} ${_d}; close ${_fh}
+
+    # backport-toolkit overlay: mkostemp (BSD/GNU-Ext, Apple erst ab SDK 10.12)
+    # DEKLARIEREN. MLS liefert das Symbol (src/mkostemp.c); 10.9 hat weder Symbol
+    # noch Deklaration -> moderne Quellen mit HAVE_MKOSTEMP (z.B. Nodes gebuendeltes
+    # libffi closures.c) brechen mit "undeclared function 'mkostemp'". Deklaration
+    # idiomatisch im stdlib.h-Wrapper, gegated auf SDK < 10.12. Gleicher String-
+    # Insert-Anchor wie oben (der aligned_alloc-Block re-emittiert den Guard).
+    # Entfernen, sobald Upstream-MLS mkostemp selbst liefert.
+    set _fh [open ${_sdh} r]; set _d [read ${_fh}]; close ${_fh}
+    set _mdecl "/* mkostemp (BSD/GNU ext, Apple SDK >= 10.12); symbol from MLS src/mkostemp.c */\n#if __MPLS_SDK_MAJOR < 101200\n__MP__BEGIN_DECLS\nextern int mkostemp(char *, int);\n__MP__END_DECLS\n#endif\n\n${_guard}"
+    if {[string first ${_guard} ${_d}] < 0} {
+        ui_error "legacy-support overlay: stdlib.h include guard not found — mkostemp decl not inserted"
+        return -code error "mkostemp decl anchor missing"
+    }
+    set _d [string map [list ${_guard} ${_mdecl}] ${_d}]
+    set _fh [open ${_sdh} w]; puts -nonewline ${_fh} ${_d}; close ${_fh}
+
+    # backport-toolkit overlay: QoS-Enum (qos_class_t + QOS_CLASS_*) im pthread.h-
+    # Wrapper ergaenzen. Die QoS-Konstanten leben auf echtem macOS in <sys/qos.h>,
+    # das <pthread.h> ab 10.10 transitiv zieht; 10.9 hat weder Header noch Enum.
+    # Modernes C++ (z.B. V8 platform-posix.cc) referenziert QOS_CLASS_* ueber
+    # <pthread.h> -> "use of undeclared identifier 'QOS_CLASS_BACKGROUND'". MLS
+    # liefert die Funktion pthread_set_qos_class_self_np schon als No-op
+    # (src/pthread_qos.c); hier kommt das Enum + die Deklaration dazu (Werte =
+    # Apple-ABI), gegated auf SDK < 10.10. Entfernen, sobald Upstream-MLS QoS liefert.
+    set _pth ${worksrcpath}/include/pthread.h
+    set _fh [open ${_pth} r]; set _pd [read ${_fh}]; close ${_fh}
+    set _pguard "#endif /* _MACPORTS_PTHREAD_H_ */"
+    # qos_class_t via gemeinsamem Guard __MPLS_QOS_CLASS_T_DEFINED (siehe files/qos.h),
+    # damit ein TU, der <pthread.h> UND <sys/qos.h> zieht, keinen doppelten typedef bekommt.
+    set _qos "/* QoS scheduling classes (<sys/qos.h>, macOS 10.10+); absent on 10.9. */\n#if __MPLS_SDK_MAJOR < 101000\n#ifndef __MPLS_QOS_CLASS_T_DEFINED\n#define __MPLS_QOS_CLASS_T_DEFINED\ntypedef enum {\n    QOS_CLASS_USER_INTERACTIVE = 0x21,\n    QOS_CLASS_USER_INITIATED   = 0x19,\n    QOS_CLASS_DEFAULT          = 0x15,\n    QOS_CLASS_UTILITY          = 0x11,\n    QOS_CLASS_BACKGROUND       = 0x09,\n    QOS_CLASS_UNSPECIFIED      = 0x00\n} qos_class_t;\n#endif\n#ifndef __MPLS_PTHREAD_OVERRIDE_T_DEFINED\n#define __MPLS_PTHREAD_OVERRIDE_T_DEFINED\ntypedef void *pthread_override_t;\n#endif\n__MP__BEGIN_DECLS\nint pthread_set_qos_class_self_np(qos_class_t __qos_class, int __relative_priority);\npthread_override_t pthread_override_qos_class_start_np(pthread_t __pthread, qos_class_t __qos_class, int __relative_priority);\nint pthread_override_qos_class_end_np(pthread_override_t __override);\n__MP__END_DECLS\n#endif\n\n${_pguard}"
+    if {[string first ${_pguard} ${_pd}] < 0} {
+        ui_error "legacy-support overlay: pthread.h include guard not found — QoS enum not inserted"
+        return -code error "pthread.h QoS anchor missing"
+    }
+    set _pd [string map [list ${_pguard} ${_qos}] ${_pd}]
+    set _fh [open ${_pth} w]; puts -nonewline ${_fh} ${_pd}; close ${_fh}
+}

@@ -1,0 +1,11 @@
+--- a/cmake/modules/Findfstrcmp.cmake
++++ b/cmake/modules/Findfstrcmp.cmake
+@@ -34,7 +34,7 @@ if(ENABLE_INTERNAL_FSTRCMP)
+                       URL ${FSTRCMP_URL}
+                       DOWNLOAD_DIR ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/download
+                       PREFIX ${CORE_BUILD_DIR}/fstrcmp
+-                      CONFIGURE_COMMAND autoreconf -vif && ./configure --prefix ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}
++                      CONFIGURE_COMMAND autoreconf -vif && ./configure --prefix ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR} LIBTOOL=/opt/local/bin/glibtool
+                       BUILD_BYPRODUCTS ${FSTRCMP_LIBRARY}
+                       BUILD_IN_SOURCE 1)
+   set_target_properties(fstrcmp PROPERTIES FOLDER "External Projects")

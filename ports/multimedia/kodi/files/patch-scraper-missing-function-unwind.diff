@@ -1,0 +1,52 @@
+diff --git a/xbmc/addons/Scraper.cpp b/xbmc/addons/Scraper.cpp
+index 14dd3ce..5779f66 100644
+--- a/xbmc/addons/Scraper.cpp
++++ b/xbmc/addons/Scraper.cpp
+@@ -314,6 +314,18 @@ std::vector<std::string> CScraper::RunNoThrow(const std::string &function,
+                                               const std::vector<std::string> *extras)
+ {
+   std::vector<std::string> vcs;
++
++  // XML scraper functions are optional (metadata.local intentionally provides
++  // none). Avoid throwing only to turn a missing function back into an empty
++  // result. Apart from avoiding noisy errors, this keeps Mavericks out of the
++  // mixed system/bundled libunwind path while preserving exceptions for real
++  // parser failures inside functions that do exist.
++  if (!m_isPython)
++  {
++    if (!Load() || !m_parser.HasFunction(function))
++      return vcs;
++  }
++
+   try
+   {
+     vcs = Run(function, url, http, extras);
+diff --git a/xbmc/utils/ScraperParser.cpp b/xbmc/utils/ScraperParser.cpp
+index 2e4c157..9027c8c 100644
+--- a/xbmc/utils/ScraperParser.cpp
++++ b/xbmc/utils/ScraperParser.cpp
+@@ -448,6 +448,12 @@ void CScraperParser::ParseNext(TiXmlElement* pReg)
+   }
+ }
+ 
++bool CScraperParser::HasFunction(const std::string& function) const
++{
++  return m_pRootElement != nullptr &&
++         m_pRootElement->FirstChildElement(function.c_str()) != nullptr;
++}
++
+ const std::string CScraperParser::Parse(const std::string& strTag,
+                                        CScraper* scraper)
+ {
+diff --git a/xbmc/utils/ScraperParser.h b/xbmc/utils/ScraperParser.h
+index ebf6cd5..bd8f51d 100644
+--- a/xbmc/utils/ScraperParser.h
++++ b/xbmc/utils/ScraperParser.h
+@@ -39,6 +39,7 @@
+     { return m_SearchStringEncoding; }
+   const std::string Parse(const std::string& strTag,
+                          ADDON::CScraper* scraper);
++  bool HasFunction(const std::string& function) const;
+ 
+   void AddDocument(const CXBMCTinyXML* doc);
+ 

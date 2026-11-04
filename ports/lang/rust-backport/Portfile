@@ -1,0 +1,70 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; -*-
+# rust-backport: Rust 1.95 (edition 2024) lauffaehig auf macOS 10.9 via Symbol-Shim.
+# Prebuilt-Toolchain + DYLD/MacportsLegacySupport-Shim. Basis fuer Rust-Backports.
+PortSystem          1.0
+
+name                rust-backport
+version             1.95.0
+revision            8
+categories          lang
+platforms           darwin
+supported_archs     x86_64
+license             {Apache-2 MIT}
+maintainers         nomaintainer
+description         Rust ${version} toolchain backported to run on macOS 10.9
+long_description    Prebuilt rustc/cargo ${version} plus a libSystem symbol shim \
+                    (MacportsLegacySupport + extras) so modern edition-2024 Rust \
+                    builds and runs natively on macOS 10.9.
+
+homepage            https://www.rust-lang.org
+master_sites        https://static.rust-lang.org/dist
+distname            rust-${version}-x86_64-apple-darwin
+checksums           rmd160  862223a4d23768f6359832a0de1585eb0323b098 \
+                    sha256  3f3d9f29f8eb7aa821bd8531cb9b1c3c74c3976aa558dfabfcc15c2febb3cfb8 \
+                    size    336746208
+
+# MacportsLegacySupport liefert clock_gettime/getentropy/*at/os_unfair_lock...;
+# macports-libcxx = modernes libc++; clang-22 ist die aktuelle, saubere Backport-
+# Toolchain (externes CLANG_CONFIG_FILE_SYSTEM_DIR, kein Wrapper). Frueher: 19/16.
+depends_lib         port:legacy-support port:macports-libcxx port:clang-22
+depends_build       port:clang-22
+
+use_configure       no
+build {}
+
+# Prebuilt-Installer laeuft nicht als build; wir kopieren im destroot direkt.
+set tcdir           ${prefix}/libexec/rust-backport
+set shimdir         ${prefix}/libexec/rust-backport/shim
+set mls             ${prefix}/lib/libMacportsLegacySupport.dylib
+set clang_major     22
+set clangcc         ${prefix}/bin/clang-mp-${clang_major}
+set clangxx         ${prefix}/bin/clang++-mp-${clang_major}
+
+destroot {
+    # 1) rust-Komponenten via mitgeliefertem install.sh in das Prefix
+    system -W ${worksrcpath} "./install.sh --prefix=${destroot}${tcdir} \
+        --components=rustc,cargo,rust-std-x86_64-apple-darwin --disable-ldconfig"
+
+    # 2) Extras-Shim bauen (die 5 Symbole, die MLS nicht hat)
+    xinstall -d ${destroot}${shimdir}
+    xinstall -m 0644 ${filespath}/macos109_extras.c ${destroot}${shimdir}/
+    system "${clangxx} -dynamiclib -O2 -mmacosx-version-min=10.9 \
+        -install_name ${shimdir}/libmacos109extras.dylib \
+        -o ${destroot}${shimdir}/libmacos109extras.dylib ${filespath}/macos109_extras.c"
+    system "${clangxx} -c -O2 -mmacosx-version-min=10.9 \
+        -o ${destroot}${shimdir}/macos109_extras.o ${filespath}/macos109_extras.c"
+
+    # backport-toolkit overlay (rev 8): LIBEXEC-ONLY — KEINE /opt/local/bin-Wrapper
+    # mehr. Dadurch kollidiert rust-backport nicht mit dem nativen rust-Port (der
+    # /opt/local/bin/rustc besitzt) und kann konfliktfrei NEBEN ihm aktiv sein.
+    # Zweck ist ausschliesslich Stage0-Bereitstellung: die rohen Bootstrap-Tools
+    # unter ${tcdir}/bin/{rustc,cargo} dienen als build.rustc/build.cargo fuer
+    # rust- und cargo-Overlay-Builds. Zur Laufzeit im Build bekommen sie den
+    # 10.9-Shim via build.env (DYLD_FORCE_FLAT_NAMESPACE=1 +
+    # DYLD_INSERT_LIBRARIES=libMacportsLegacySupport.dylib); MLS enthaelt die
+    # frueheren macos109_extras-Symbole bereits eingefaltet -> extras-Shim (2)
+    # nur noch als Reserve. Frueher (bis rev 7) lagen hier DYLD-Wrapper in bin/.
+}
+
+# kein test/livecheck noetig
+livecheck.type      none

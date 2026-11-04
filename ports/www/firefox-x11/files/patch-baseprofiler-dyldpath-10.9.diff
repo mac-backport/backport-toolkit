@@ -1,0 +1,21 @@
+--- mozglue/baseprofiler/core/shared-libraries-macos.cc.orig
++++ mozglue/baseprofiler/core/shared-libraries-macos.cc
+@@ -182,6 +182,10 @@
+   // Add the entry for dyld itself.
+   // We only support macOS 10.12+, which corresponds to dyld version 15+.
+   // dyld version 15 added the dyldPath property.
++// MacPorts firefox-x11 10.9-Backport: 10.9-SDK kennt dyld_all_image_infos.dyldPath
++// nicht (erst ab 10.12-SDK). Der Block laeuft ohnehin nur fuer dyld-version>=15
++// (=10.12+), auf 10.9 also nie -> beim 10.9-SDK auskompilieren, keine Verhaltensaenderung.
++#if !defined(__MAC_OS_X_VERSION_MAX_ALLOWED) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
+   task_dyld_info_data_t task_dyld_info;
+   mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+   if (task_info(mach_task_self(), TASK_DYLD_INFO, (task_info_t)&task_dyld_info,
+@@ -197,6 +201,7 @@
+             aii->dyldImageLoadAddress);
+     addSharedLibrary(header, aii->dyldPath, sharedLibraryInfo);
+   }
++#endif
+ 
+   return sharedLibraryInfo;
+ }

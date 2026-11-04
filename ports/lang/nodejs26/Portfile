@@ -1,0 +1,233 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem              1.0
+PortGroup               legacysupport 1.1
+# Rust-Toolchain-Wiring fuer den eingebetteten Crates-Build (V8-Temporal): natives
+# CARGO/RUSTC, lokales CARGO_HOME, RUSTFLAGS (clang-22-Linker + statisches MLS).
+# Overlay-PortGroup, siehe memory embedded-rust-on-10-9-technique.
+PortGroup               embedded-cargo-legacy 1.0
+
+# --- macOS 10.9 (Mavericks) Backport ---------------------------------------
+# Lokaler Override des offiziellen lang/nodejs26 (26.7.0). Angepasst an das
+# ~/backport-toolkit: MacPorts clang-22 (liest die Backport-cfg selbst ueber
+# einkompiliertes -DCLANG_CONFIG_FILE_SYSTEM_DIR=/opt/local/etc/clang-backport),
+# modernes macports-libcxx, MacportsLegacySupport fuer die fehlenden
+# 10.10-14 libSystem-APIs. Upstream deklariert 'platforms {darwin >= 22}' und
+# baut mit dem System-clang gegen macOS 13+; beides hier bewusst aufgehoben.
+#
+# WICHTIG: V8 verlangt clang >= 19.1 (Node BUILDING.md) -> clang-22 erfuellt das.
+# Die externe cfg (/opt/local/etc/clang-backport/) liefert -DTARGET_OS_OSX=1,
+# -faligned-allocation und das macports-libcxx als Standard-libc++ automatisch.
+# ---------------------------------------------------------------------------
+
+name                    nodejs26
+version                 26.7.0
+# rev1: V8-Temporal AN (nativ, temporal_rs via natives rust/cargo + MLS).
+revision                1
+
+categories              lang net
+license                 {MIT BSD}
+maintainers             nomaintainer
+platforms               darwin
+
+description             Evented I/O for V8 JavaScript (macOS 10.9 backport)
+
+long_description        Node's goal is to provide an easy way to build scalable network programs in JavaScript. \
+                        Diese lokale Variante baut Node.js ${version} quellseitig auf macOS 10.9 \
+                        mit MacPorts clang-22 und MacportsLegacySupport.
+
+# Bewusst KEIN conflicts mit den anderen nodejsNN: dieser Port ueberschreibt
+# nur den offiziellen nodejs26 im hoeher priorisierten lokalen Overlay.
+conflicts               nodejs8 nodejs10 nodejs12 nodejs14 nodejs16 nodejs18 nodejs20 nodejs22 nodejs24
+
+homepage                https://nodejs.org/
+master_sites            ${homepage}dist/v${version}
+use_xz                  yes
+
+checksums               rmd160  38a00f30fc89187bce39cde7ff5d9fb321813ea2 \
+                        sha256  e6b182cbeeab032d1082ca4ac4fe15e3a57de691d3bde78ecf8a761fd56ee356 \
+                        size    60914892
+
+distname                node-v${version}
+
+# --- Backport-Toolchain -----------------------------------------------------
+# clang-22 liest die externe Backport-cfg (/opt/local/etc/clang-backport/) selbst
+# ueber einkompiliertes CLANG_CONFIG_FILE_SYSTEM_DIR: -DTARGET_OS_OSX=1,
+# -faligned-allocation, macports-libcxx als libc++ (verifiziert: C++17-Smoke-Test
+# @10.9 laeuft, _LIBCPP_DISABLE_AVAILABILITY NICHT noetig). legacysupport-PortGroup
+# haengt -lMacportsLegacySupport an.
+configure.compiler      macports-clang-22
+compiler.cxx_standard   2020
+macosx_deployment_target 10.9
+
+set py_ver              3.14
+set py_ver_nodot        [string map {. {}} ${py_ver}]
+
+# Rust-Toolchain fuer V8-Temporal (temporal_rs/temporal_capi, vendored deps/crates):
+# natives CARGO/RUSTC + CARGO_HOME + RUSTFLAGS (clang-22-Linker + statisches MLS) +
+# depends port:rust/port:cargo kommen aus PortGroup embedded-cargo-legacy (oben).
+# Hier nur die node-eigenen Build-Deps. Der --target-Fallstrick (sonst greift RUSTFLAGS
+# nicht auf Host-Build-Scripts) ist per patch-crates-no-target geloest (patchfiles).
+depends_build-append    path:bin/pkg-config:pkgconfig \
+                        port:clang-22 \
+                        port:python${py_ver_nodot}
+
+depends_lib-append      port:zlib
+
+proc rec_glob {basedir pattern} {
+    set files [glob -directory $basedir -nocomplain -type f $pattern]
+    foreach dir [glob -directory $basedir -nocomplain -type d *] {
+        lappend files {*}[rec_glob $dir $pattern]
+    }
+    return $files
+}
+
+configure.python        ${prefix}/bin/python${py_ver}
+
+patchfiles              patch-common.gypi.diff \
+                        patch-common.gypi-mls-link.diff \
+                        patch-v8-no-system-instrumentation.diff \
+                        patch-libuv-no-apple-mmsg.diff \
+                        patch-crypto-sectrust-10.9.diff \
+                        patch-crates-no-target.diff
+
+post-patch {
+    foreach f [concat ${worksrcpath}/configure \
+                   ${worksrcpath}/tools/gyp/gyp \
+                   ${worksrcpath}/deps/v8/tools/objdump-v8 \
+                   [rec_glob ${worksrcpath} *.py]] {
+        reinplace -q "s|/usr/bin/env python3|${configure.python}|" ${f}
+        reinplace -q "s|/usr/bin/env python|${configure.python}|" ${f}
+    }
+    foreach gypfile [rec_glob ${worksrcpath} *.gyp*] {
+        reinplace -q "s|'python3'|'${configure.python}'|" ${gypfile}
+        reinplace -q "s|'python'|'${configure.python}'|" ${gypfile}
+    }
+}
+
+pre-configure {
+    # zlib-Header separat kopieren, damit nicht das ganze ${prefix}/include in
+    # den Include-Pfad kommt (sonst zieht der Build System-ICU-Header).
+    file mkdir ${workpath}/zlib-inc
+    file copy ${prefix}/include/zconf.h ${prefix}/include/zlib.h \
+        ${workpath}/zlib-inc/
+}
+
+configure.args-append   --without-npm
+# V8-Temporal AN (nativ). temporal_rs/temporal_capi (Rust, vendored deps/crates) wird
+# mit der NATIVEN Rust-Toolchain gebaut (CARGO/RUSTC oben auf ${prefix}/bin). Der
+# fruehere rust-backport-Wrapper ist damit obsolet. crate-type=staticlib -> cargo linkt
+# nicht; Rust-std-10.10+-Symbole (openat/unlinkat/fdopendir$INODE64/futimens/... , alle
+# von MLS geliefert) loesen sich am finalen node-Link. rustc taggt die Objekte auf 10.12
+# (Upstream-Floor), gemergt in Nodes 10.9-Binary aber irrelevant.
+configure.args-append   --v8-enable-temporal-support
+# Single Executable Applications (SEA) AUS. Grund: SEA zieht deps/LIEF (node_use_lief)
+# rein; dessen gebuendeltes spdlog/fmt nutzt malloc/free unqualifiziert -> clang-22
+# (strengerer Two-Phase-Lookup) findet sie nicht. Statt vendored fmt zu patchen die
+# offizielle Upstream-Option nutzen: kein LIEF-Build, keine Folgewaende darin. SEA
+# (Skript-in-Standalone-Binary buendeln) ist fuer die 10.9-Baseline nicht relevant;
+# derselbe Ansatz wie Temporal-/System-Instrumentation-off.
+configure.args-append   --disable-single-executable-application
+configure.args-append   --shared-zlib
+configure.args-append   --shared-zlib-includes=${workpath}/zlib-inc
+configure.args-append   --shared-zlib-libpath=${prefix}/lib
+
+# V8 only supports ARM and IA-32 processors
+supported_archs         i386 x86_64 arm64
+
+universal_variant       no
+
+variant no_openssl3_with_quic description {use MacPorts OpenSSL rather than Node.js' provided OpenSSL 3.0 extended with QUIC} {
+    depends_lib-append      port:openssl3
+    configure.args-append   --shared-openssl
+    configure.args-append   --shared-openssl-includes=${prefix}/libexec/openssl3/include/openssl
+    configure.args-append   --shared-openssl-libpath=${prefix}/libexec/openssl3/lib
+}
+
+# "V8 doesn't like cache."
+configure.ccache        no
+
+test.run                yes
+test.cmd                ${build.cmd} -j${build.jobs}
+
+switch $build_arch {
+    i386 {
+        configure.args-append   --dest-cpu=ia32
+    }
+    x86_64 {
+        configure.args-append   --dest-cpu=x64
+    }
+    arm64 {
+        configure.args-append   --dest-cpu=arm64
+    }
+}
+
+# 10.9-Wand: modernes libc++ (<iosfwd>) inkludiert den 10.9-SDK-Header
+# <sys/_types/_mbstate_t.h>, der NICHT selbstständig ist (nutzt __darwin_mbstate_t
+# ohne <sys/_types.h> zu ziehen). -> nur CXXFLAGS: -include sys/_types.h (C-Code
+# nutzt das selbstständige System-<wchar.h>; Assembly bleibt unberührt).
+build.args-append   CC=${configure.cc} \
+                    CXX=${configure.cxx} \
+                    CXX.host=${configure.cxx} \
+                    CPP=${configure.cpp} \
+                    CPPFLAGS="${configure.cppflags}" \
+                    CFLAGS="${configure.cflags} ${configure.cppflags}" \
+                    CXXFLAGS="${configure.cxxflags} ${configure.cppflags} -include sys/_types.h" \
+                    LDFLAGS="${configure.ldflags}" \
+                    PYTHON=${configure.python} \
+                    V=1
+
+destroot {
+    set bindir ${destroot}${prefix}/bin
+    set libdir ${destroot}${prefix}/lib
+    set libndir ${libdir}/node
+    set libddir ${libdir}/dtrace
+    set incdir ${destroot}${prefix}/include/node
+    set docdir ${destroot}${prefix}/share/doc/${name}
+
+    xinstall -d ${bindir}
+    xinstall -d ${libdir}
+    xinstall -d ${libndir}
+    xinstall -d ${libddir}
+    xinstall -d ${incdir}
+    xinstall -d ${incdir}/uv
+    xinstall -d ${docdir}
+
+    # install binaries
+    xinstall -m 755 -W ${worksrcpath} \
+        out/Release/node \
+        ${bindir}
+
+    # install headers
+    xinstall -m 644 {*}[glob ${worksrcpath}/src/*.h]                ${incdir}
+    xinstall -m 644 {*}[glob ${worksrcpath}/deps/v8/include/*.h]    ${incdir}
+    xinstall -m 644 {*}[glob ${worksrcpath}/deps/uv/include/*.h]    ${incdir}
+    xinstall -m 644 {*}[glob ${worksrcpath}/deps/uv/include/uv/*.h] ${incdir}/uv
+    xinstall -m 644 {*}[glob ${worksrcpath}/deps/cares/include/*.h] ${incdir}
+
+    # install manpage
+    xinstall -m 644 -W ${worksrcpath} \
+        doc/node.1 \
+        ${destroot}${prefix}/share/man/man1
+
+    # install docs
+    xinstall -m 644 -W ${worksrcpath} \
+        CHANGELOG.md \
+        CONTRIBUTING.md \
+        GOVERNANCE.md \
+        LICENSE \
+        README.md \
+        SECURITY.md \
+        ${docdir}
+}
+
+notes "
+${name} does not contain npm but it can be installed as a separate port.\
+Pick from the choices listed by running:
+
+port search --name --glob 'npm*'
+"
+
+livecheck.url       ${homepage}dist/
+livecheck.type      regex
+livecheck.regex     {v(26\.\d+\.\d+)}

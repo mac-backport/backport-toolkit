@@ -1,0 +1,18 @@
+--- a/tools/darwin/Support/copyframeworks-osx.command
++++ b/tools/darwin/Support/copyframeworks-osx.command
+@@ -82,9 +82,13 @@ for a in $(otool -LX "$TARGET_BINARY"  | grep "$EXTERNAL_LIBS" | awk ' { pri
+ done
+ 
+-echo "Package $EXTERNAL_LIBS/lib/python2.7"
++PYTHON_LIB="$EXTERNAL_LIBS/lib/python2.7"
++if [ ! -d "$PYTHON_LIB" ]; then
++  PYTHON_LIB="$EXTERNAL_LIBS/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7"
++fi
++echo "Package $PYTHON_LIB"
+ mkdir -p "$TARGET_CONTENTS/Libraries/lib"
+ PYTHONSYNC="rsync -aq --exclude .DS_Store --exclude *.a --exclude *.exe --exclude test --exclude tests"
+-${PYTHONSYNC} "$EXTERNAL_LIBS/lib/python2.7" "$TARGET_FRAMEWORKS/lib/"
++${PYTHONSYNC} "$PYTHON_LIB" "$TARGET_FRAMEWORKS/lib/"
+ rm -rf "$TARGET_FRAMEWORKS/lib/python2.7/config"
+ 
+ echo "Checking $TARGET_FRAMEWORKS/lib/python2.7 *.so for dylib dependencies"

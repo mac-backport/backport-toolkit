@@ -1,0 +1,61 @@
+--- a/cmake/scripts/common/ProjectMacros.cmake
++++ b/cmake/scripts/common/ProjectMacros.cmake
+@@ -11,11 +11,11 @@ function(pack_xbt input output)
+   get_filename_component(dir ${output} DIRECTORY)
+   add_custom_command(OUTPUT  ${output}
+                      COMMAND ${CMAKE_COMMAND} -E make_directory ${dir}
+-                     COMMAND TexturePacker::TexturePacker
++                     COMMAND $<TARGET_FILE:TexturePacker::TexturePacker>
+                      ARGS    -input ${input}
+                              -output ${output}
+                              -dupecheck
+-                     DEPENDS ${MEDIA_FILES})
++                     DEPENDS TexturePacker::TexturePacker ${MEDIA_FILES})
+   list(APPEND XBT_FILES ${output})
+   set(XBT_FILES ${XBT_FILES} PARENT_SCOPE)
+ endfunction()
+--- a/cmake/scripts/osx/Macros.cmake
++++ b/cmake/scripts/osx/Macros.cmake
+@@ -45,7 +45,7 @@ function(core_link_library target wraplib scope)
+   # We can't simply pass the linker flags to the args section of the custom command
+   # because cmake will add quotes around it (and the linker will fail due to those).
+   # We need to do this handstand first ...
+-  string(REPLACE " " ";" CUSTOM_COMMAND_ARGS_LDFLAGS ${CMAKE_SHARED_LINKER_FLAGS})
++  string(REPLACE " " ";" CUSTOM_COMMAND_ARGS_LDFLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+ 
+  add_custom_command(OUTPUT ${wraplib}-${ARCH}${extension}
+                     COMMAND ${CMAKE_COMMAND} -E make_directory ${dir}
+--- a/cmake/scripts/common/ProjectMacros.cmake
++++ b/cmake/scripts/common/ProjectMacros.cmake
+@@ -109,12 +109,12 @@ function(add_sources)
+ endfunction()
+ 
+ function(whole_archive output)
+-  if(CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+-    set(${output} -Wl,--whole-archive ${ARGN} -Wl,--no-whole-archive PARENT_SCOPE)
+-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL AppleClang)
++  if(APPLE)
+     foreach(library ${ARGN})
+       list(APPEND ${output} -Wl,-force_load ${library})
+       set(${output} ${${output}} PARENT_SCOPE)
+     endforeach()
++  elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
++    set(${output} -Wl,--whole-archive ${ARGN} -Wl,--no-whole-archive PARENT_SCOPE)
+   else()
+     set(${output} ${ARGN} PARENT_SCOPE)
+   endif()
+--- a/cmake/modules/Findfstrcmp.cmake
++++ b/cmake/modules/Findfstrcmp.cmake
+@@ -44,7 +44,11 @@ if(ENABLE_INTERNAL_FSTRCMP)
+                                     REQUIRED_VARS FSTRCMP_LIBRARY FSTRCMP_INCLUDE_DIR
+                                     VERSION_VAR FSTRCMP_VER)
+ 
+-  set(FSTRCMP_LIBRARIES -Wl,-Bstatic ${FSTRCMP_LIBRARY} -Wl,-Bdynamic)
++  if(APPLE)
++    set(FSTRCMP_LIBRARIES ${FSTRCMP_LIBRARY})
++  else()
++    set(FSTRCMP_LIBRARIES -Wl,-Bstatic ${FSTRCMP_LIBRARY} -Wl,-Bdynamic)
++  endif()
+   set(FSTRCMP_INCLUDE_DIRS ${FSTRCMP_INCLUDE_DIR})
+ else()
+   if(PKG_CONFIG_FOUND)

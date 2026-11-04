@@ -1,0 +1,40 @@
+--- zathura/page-widget.c	2026-09-01 14:19:50.000000000 +0200
++++ zathura/page-widget.c	2026-09-01 14:19:50.000000000 +0200
+@@ -1182,7 +1182,7 @@
+ 
+   /* set command */
+   char* export_command = g_strdup_printf(":export image-p%d-%d ", page_id, image_id);
+-  girara_argument_t argument = { 0, export_command };
++  girara_argument_t argument = { .n = 0, .data = export_command };
+   sc_focus_inputbar(priv->zathura->ui.session, &argument, NULL, 0);
+   g_free(export_command);
+ 
+--- zathura/shortcuts.c	2026-09-01 14:19:50.000000000 +0200
++++ zathura/shortcuts.c	2026-09-01 14:19:50.000000000 +0200
+@@ -478,7 +478,7 @@
+   zathura_document_set_rotation(zathura->document, (rotation + angle * t) % 360);
+ 
+   /* update scale */
+-  girara_argument_t new_argument = { zathura_document_get_adjust_mode(zathura->document), NULL };
++  girara_argument_t new_argument = { .n = zathura_document_get_adjust_mode(zathura->document), .data = NULL };
+   sc_adjust_window(zathura->ui.session, &new_argument, NULL, 0);
+ 
+   /* render all pages again */
+@@ -1326,7 +1326,7 @@
+     zathura->shortcut.toggle_presentation_mode.zoom = zathura_document_get_zoom(zathura->document);
+ 
+     /* adjust window */
+-    girara_argument_t argument = { ZATHURA_ADJUST_BESTFIT, NULL };
++    girara_argument_t argument = { .n = ZATHURA_ADJUST_BESTFIT, .data = NULL };
+     sc_adjust_window(session, &argument, NULL, 0);
+ 
+     /* hide status and inputbar */
+@@ -1350,7 +1350,7 @@
+ {
+   g_return_val_if_fail(session != NULL, false);
+ 
+-  girara_argument_t arg = { GIRARA_HIDE, NULL };
++  girara_argument_t arg = { .n = GIRARA_HIDE, .data = NULL };
+   girara_isc_completion(session, &arg, NULL, 0);
+ 
+   cb_destroy(NULL, NULL);

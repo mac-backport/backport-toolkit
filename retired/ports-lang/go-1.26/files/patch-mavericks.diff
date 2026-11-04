@@ -1,0 +1,173 @@
+--- src/make.bash.orig
++++ src/make.bash
+@@ -191,7 +191,7 @@
+ 	exit 1
+ fi
+ rm -f cmd/dist/dist
+-bootstrapenv "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
++GOROOT="$GOROOT_BOOTSTRAP" GO111MODULE=off GOENV=off GOOS="" GOARCH="" GOEXPERIMENT="" GOFLAGS="-ldflags=$BOOT_GO_LDFLAGS" "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
+ 
+ # -e doesn't propagate out of eval, so check success by hand.
+ eval $(./cmd/dist/dist env -p || echo FAIL=true)
+--- src/crypto/x509/internal/macos/security.go.orig
++++ src/crypto/x509/internal/macos/security.go
+@@ -105,22 +105,16 @@
+ }
+ func x509_SecTrustEvaluate_trampoline()
+ 
+-//go:cgo_import_dynamic x509_SecTrustEvaluateWithError SecTrustEvaluateWithError "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+-
+ func SecTrustEvaluateWithError(trustObj CFRef) (int, error) {
+-	var errRef CFRef
+-	ret := syscall(abi.FuncPCABI0(x509_SecTrustEvaluateWithError_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&errRef)), 0, 0, 0, 0)
+-	if int32(ret) != 1 {
+-		errStr := CFErrorCopyDescription(errRef)
+-		err := errors.New(CFStringToString(errStr))
+-		errCode := CFErrorGetCode(errRef)
+-		CFRelease(errRef)
+-		CFRelease(errStr)
+-		return errCode, err
++	result, err := SecTrustEvaluate(trustObj)
++	if err != nil {
++		return 0, err
++	}
++	if result == 1 || result == 4 {
++		return 0, nil
+ 	}
+-	return 0, nil
++	return ErrSecNotTrusted, errors.New("SecTrustEvaluate: certificate verification failed")
+ }
+-func x509_SecTrustEvaluateWithError_trampoline()
+ 
+ //go:cgo_import_dynamic x509_SecCertificateCopyData SecCertificateCopyData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+ 
+@@ -135,13 +129,21 @@
+ }
+ func x509_SecCertificateCopyData_trampoline()
+ 
+-//go:cgo_import_dynamic x509_SecTrustCopyCertificateChain SecTrustCopyCertificateChain "/System/Library/Frameworks/Security.framework/Versions/A/Security"
++//go:cgo_import_dynamic x509_SecTrustGetCertificateCount SecTrustGetCertificateCount "/System/Library/Frameworks/Security.framework/Versions/A/Security"
++
++func SecTrustGetCertificateCount(trustObj CFRef) int {
++	ret := syscall(abi.FuncPCABI0(x509_SecTrustGetCertificateCount_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
++	return int(ret)
++}
++func x509_SecTrustGetCertificateCount_trampoline()
++
++//go:cgo_import_dynamic x509_SecTrustGetCertificateAtIndex SecTrustGetCertificateAtIndex "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+ 
+-func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, error) {
+-	ret := syscall(abi.FuncPCABI0(x509_SecTrustCopyCertificateChain_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
++func SecTrustGetCertificateAtIndex(trustObj CFRef, i int) (CFRef, error) {
++	ret := syscall(abi.FuncPCABI0(x509_SecTrustGetCertificateAtIndex_trampoline), uintptr(trustObj), uintptr(i), 0, 0, 0, 0)
+ 	if ret == 0 {
+-		return 0, OSStatus{"SecTrustCopyCertificateChain", int32(ret)}
++		return 0, OSStatus{"SecTrustGetCertificateAtIndex", int32(ret)}
+ 	}
+ 	return CFRef(ret), nil
+ }
+-func x509_SecTrustCopyCertificateChain_trampoline()
++func x509_SecTrustGetCertificateAtIndex_trampoline()
+--- src/crypto/x509/internal/macos/security.s.orig
++++ src/crypto/x509/internal/macos/security.s
+@@ -19,9 +19,9 @@
+ 	JMP x509_SecTrustSetVerifyDate(SB)
+ TEXT ·x509_SecTrustEvaluate_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecTrustEvaluate(SB)
+-TEXT ·x509_SecTrustEvaluateWithError_trampoline(SB),NOSPLIT,$0-0
+-	JMP x509_SecTrustEvaluateWithError(SB)
+ TEXT ·x509_SecCertificateCopyData_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecCertificateCopyData(SB)
+-TEXT ·x509_SecTrustCopyCertificateChain_trampoline(SB),NOSPLIT,$0-0
+-	JMP x509_SecTrustCopyCertificateChain(SB)
++TEXT ·x509_SecTrustGetCertificateCount_trampoline(SB),NOSPLIT,$0-0
++	JMP x509_SecTrustGetCertificateCount(SB)
++TEXT ·x509_SecTrustGetCertificateAtIndex_trampoline(SB),NOSPLIT,$0-0
++	JMP x509_SecTrustGetCertificateAtIndex(SB)
+--- src/crypto/x509/root_darwin.go.orig
++++ src/crypto/x509/root_darwin.go
+@@ -8,6 +8,7 @@
+ 	"crypto/x509/internal/macos"
+ 	"errors"
+ 	"fmt"
++	"os"
+ )
+ 
+ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+@@ -73,13 +74,11 @@
+ 	}
+ 
+ 	chain := [][]*Certificate{{}}
+-	chainRef, err := macos.SecTrustCopyCertificateChain(trustObj)
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer macos.CFRelease(chainRef)
+-	for i := 0; i < macos.CFArrayGetCount(chainRef); i++ {
+-		certRef := macos.CFArrayGetValueAtIndex(chainRef, i)
++	for i := 0; i < macos.SecTrustGetCertificateCount(trustObj); i++ {
++		certRef, err := macos.SecTrustGetCertificateAtIndex(trustObj, i)
++		if err != nil {
++			return nil, err
++		}
+ 		cert, err := exportCertificate(certRef)
+ 		if err != nil {
+ 			return nil, err
+@@ -127,5 +126,13 @@
+ }
+ 
+ func loadSystemRoots() (*CertPool, error) {
+-	return &CertPool{systemPool: true}, nil
++	pem, err := os.ReadFile("/opt/local/share/curl/curl-ca-bundle.crt")
++	if err != nil {
++		return nil, err
++	}
++	roots := NewCertPool()
++	if !roots.AppendCertsFromPEM(pem) {
++		return nil, errors.New("x509: failed to load MacPorts CA bundle")
++	}
++	return roots, nil
+ }
+--- src/runtime/sys_darwin.go.orig
++++ src/runtime/sys_darwin.go
+@@ -643,7 +643,6 @@
+ //go:cgo_import_dynamic libc_pthread_cond_signal pthread_cond_signal "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_arc4random_buf arc4random_buf "/usr/lib/libSystem.B.dylib"
+ 
+-//go:cgo_import_dynamic libc_notify_is_valid_token notify_is_valid_token "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_xpc_date_create_from_current xpc_date_create_from_current "/usr/lib/libSystem.B.dylib"
+ 
+ //go:cgo_import_dynamic libc_issetugid issetugid "/usr/lib/libSystem.B.dylib"
+--- src/runtime/sys_darwin_amd64.s.orig
++++ src/runtime/sys_darwin_amd64.s
+@@ -496,7 +496,6 @@
+ 
+ TEXT runtime·osinit_hack_trampoline(SB),NOSPLIT,$0
+ 	MOVQ	$0, DI	// arg 1 val
+-	CALL	libc_notify_is_valid_token(SB)
+ 	CALL	libc_xpc_date_create_from_current(SB)
+ 	RET
+ 
+--- src/cmd/link/internal/ld/macho.go.orig
++++ src/cmd/link/internal/ld/macho.go
+@@ -437,7 +437,7 @@
+ 				// CL 460476 noted that in general this can be the most recent supported
+ 				// macOS version, but we haven't tested if going higher than Go's oldest
+ 				// supported macOS version could cause new problems.
+-				version = 12<<16 | 0<<8 | 0<<0 // 12.0.0
++				version = 10<<16 | 9<<8 | 0<<0 // 10.9.0 Mavericks backport
+ 			}
+ 			ml := newMachoLoad(ctxt.Arch, imacho.LC_BUILD_VERSION, 4)
+ 			ml.data[0] = uint32(machoPlatform)
+--- src/cmd/dist/buildtool.go.orig
++++ src/cmd/dist/buildtool.go
+@@ -247,6 +247,9 @@
+ 		"install",
+ 		"-tags=math_big_pure_go compiler_bootstrap purego",
+ 	}
++	if goldflags != "" {
++		cmd = append(cmd, "-ldflags="+goldflags)
++	}
+ 	if vflag > 0 {
+ 		cmd = append(cmd, "-v")
+ 	}

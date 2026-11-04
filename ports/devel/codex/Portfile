@@ -1,0 +1,149 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; -*-
+# codex: OpenAI Codex CLI, gebaut mit der NATIVEN rust/cargo-Toolchain auf macOS 10.9.
+# Schliesst die Kette:  natives rust/cargo -> protobuf5-cpp -> codex.
+PortSystem          1.0
+PortGroup           github 1.0
+
+# Version = Codex rust-Release-Tag (rust-vX.Y.Z). Bei Updates hier bumpen + checksums.
+github.setup        openai codex 0.166.0 rust-v
+revision            0
+# Source-Archiv (Tag-Tarball), nicht ein Release-Asset:
+github.tarball_from archive
+name                codex
+categories          devel
+platforms           darwin
+supported_archs     x86_64
+license             Apache-2
+maintainers         nomaintainer
+description         OpenAI Codex CLI (Rust) fuer macOS 10.9
+long_description    ${description}, gebaut mit nativem rust/cargo 1.95 (clang-22 + \
+                    statisches MLS) und nativem protoc aus protobuf5-cpp.
+
+checksums           rmd160  96ef9159822a26e343510cefbed3872b1afd0c39 \
+                    sha256  718c86dcd7104919f2820aa79db0fa0083b5f240aa16da704f43e4acf7b544e5 \
+                    size    18852337
+
+# Native Toolchain (rust/cargo) + natives protoc + modernes C++/clang-22.
+depends_build       port:cargo port:rust port:protobuf5-cpp port:clang-22 port:git
+# curl-ca-bundle: liefert das Root-CA-Bundle fuer rustls (SSL_CERT_FILE) -> sonst TLS-Fehler.
+depends_lib         port:legacy-support port:macports-libcxx port:curl-ca-bundle \
+                    port:ripgrep
+
+# 10.9-Patch: build.rs soll natives protoc (PROTOC-env) nutzen statt vendored.
+patchfiles          codex-macos109.patch
+patch.dir           ${worksrcpath}
+
+use_configure       no
+# Der globale MacPorts-sccache-Wrapper kann als Benutzer macports sein
+# Preprocessor-Verzeichnis unter /opt/local/var/sccache nicht anlegen. Fuer
+# diesen langen, seltenen Build ist ein sauberer lokaler Compile verlaesslicher.
+configure.ccache    no
+
+# Cargo-Workspace liegt im Unterordner codex-rs.
+set cargodir        ${worksrcpath}/codex-rs
+set protoc          ${prefix}/libexec/protobuf5-cpp/bin/protoc
+set clangcc         ${prefix}/bin/clang-mp-22
+
+build.cmd           ${prefix}/bin/cargo
+build.target        build
+# codex + Code-Mode-Host. (Der Patch entfernt das v8_enable_sandbox-Feature, weil
+# denoland die ptrcomp_sandbox-V8-Variante fuer x86_64-apple-darwin nicht published;
+# ohne Sandbox nutzt v8 die published ptrcomp-Variante. Code-Mode laeuft, nur ohne
+# das zusaetzliche V8-Heap-Sandbox-Hardening.)
+build.args          -p codex-cli --bin codex \
+                    -p codex-code-mode-host --bin codex-code-mode-host \
+                    --release
+build.dir           ${cargodir}
+# C/ASM-Crates (aws-lc-sys, ring, zstd-sys ...) compilen ueber die cc-crate. Ohne
+# CC/CXX faellt sie auf das System-/usr/bin/cc (Apple LLVM 3.5, clang-600) zurueck
+# -> kennt kein AVX-512 und bricht an aws-lc-sys 0.39.0s rsaz-4k-avx512.S ab
+# ("invalid operand for instruction"). clang-22 (unser C/ASM-Compiler; liefert via
+# Base-cfg zugleich TARGET_OS_OSX=1, das aws-lc zur macOS-Erkennung braucht)
+# assembliert die EVEX-Instruktionen sauber; die AVX-512-Pfade sind zur Laufzeit
+# CPUID-gated, also auf 10.9-CPUs ohne AVX-512 unschaedlich.
+build.env-append    CC=${prefix}/bin/clang-mp-22 \
+                    CXX=${prefix}/bin/clang++-mp-22
+build.env-append    CARGO_HOME=${workpath}/cargo-home \
+                    CARGO_NET_GIT_FETCH_WITH_CLI=true \
+                    C_INCLUDE_PATH=${prefix}/include/LegacySupport \
+                    CPLUS_INCLUDE_PATH=${prefix}/include/LegacySupport \
+                    PROTOC=${protoc} \
+                    PROTOC_INCLUDE=${prefix}/libexec/protobuf5-cpp/include
+# Native Toolchain statt rust-backport-Wrapper: der fruehere rust-backport-cargo-
+# Wrapper injizierte RUSTFLAGS (Linker + Shim + 10.9-Target). Mit nativem cargo
+# (kein Wrapper) setzen wir sie hier selbst: Linker clang-22, statisches MLS
+# (enthaelt die extras-Symbole eingefaltet), und 10.9-Deployment-Target als
+# LETZTES Link-Arg (Rust clamped x86_64-apple-darwin sonst auf 10.12).
+build.env-append    "RUSTFLAGS=-C linker=${prefix}/bin/clang-mp-22 -C link-arg=${prefix}/lib/libMacportsLegacySupport.a -C link-arg=-mmacosx-version-min=10.9"
+
+post-patch {
+    system "${filespath}/patch-seatbelt-macos109.sh ${worksrcpath}"
+    # Bricht billig vor dem Rust-Build ab, falls eine moderne Seatbelt-Regel
+    # vom Mavericks-Parser nicht verstanden wird.
+    system "${filespath}/codex-seatbelt-preflight.sh ${worksrcpath}"
+}
+
+pre-build {
+    # rust-toolchain.toml neutralisieren (Pin auf 1.95 stoert standalone-cargo nicht,
+    # aber sicher ist sicher) + Netzwerk-Deps holen.
+    if {[file exists ${cargodir}/rust-toolchain.toml]} {
+        file rename -force ${cargodir}/rust-toolchain.toml ${cargodir}/rust-toolchain.toml.orig
+    }
+    # Fuer fetch das native cargo direkt verwenden (DYLD-frei, laeuft nativ auf 10.9).
+    system -W ${cargodir} "CARGO_HOME=${workpath}/cargo-home CARGO_NET_GIT_FETCH_WITH_CLI=true \
+        ${prefix}/bin/cargo fetch"
+}
+
+set libexecdir      ${prefix}/libexec/codex
+set packagebindir   ${libexecdir}/bin
+set packagepathdir  ${libexecdir}/codex-path
+set cabundle        ${prefix}/share/curl/curl-ca-bundle.crt
+
+destroot {
+    # Vollstaendiges Codex-Paket: Seit 0.164 kopiert der lokale App-Server-Daemon
+    # dieses Layout in CODEX_HOME. Ohne Manifest/bin/codex/codex-path/rg bricht
+    # der normale TUI-Start mit "no complete local package" ab.
+    xinstall -d ${destroot}${packagebindir} ${destroot}${packagepathdir}
+    xinstall -m 0755 ${cargodir}/target/release/codex \
+        ${destroot}${packagebindir}/codex
+    xinstall -m 0755 ${cargodir}/target/release/codex-code-mode-host \
+        ${destroot}${packagebindir}/codex-code-mode-host
+    xinstall -m 0755 ${prefix}/bin/rg ${destroot}${packagepathdir}/rg
+
+    set manifest ${destroot}${libexecdir}/codex-package.json
+    set mf [open ${manifest} w]
+    puts $mf "{"
+    puts $mf "  \"layoutVersion\": 1,"
+    puts $mf "  \"version\": \"${version}\","
+    puts $mf "  \"target\": \"x86_64-apple-darwin\","
+    puts $mf "  \"entrypoint\": \"bin/codex\""
+    puts $mf "}"
+    close $mf
+
+    # NSWorkspace-Shim bauen (Browser-Open-API ab 10.15 nachruesten -> kein Login-Crash)
+    system "${clangcc} -dynamiclib -O2 -mmacosx-version-min=10.9 \
+        -framework AppKit -framework Foundation -lobjc \
+        -install_name ${libexecdir}/libnsworkspace_shim.dylib \
+        -o ${destroot}${libexecdir}/libnsworkspace_shim.dylib \
+        ${filespath}/nsworkspace_openurls_shim.m"
+
+    # Wrapper: SSL_CERT_FILE (rustls-Roots) + NSWorkspace-Shim, dann echtes codex
+    xinstall -d ${destroot}${prefix}/bin
+    set w ${destroot}${prefix}/bin/codex
+    set fp [open ${w} w]
+    puts $fp "#!/bin/sh"
+    puts $fp "export SSL_CERT_FILE=\"\${SSL_CERT_FILE:-${cabundle}}\""
+    puts $fp "_sh=${libexecdir}/libnsworkspace_shim.dylib"
+    puts $fp "export DYLD_INSERT_LIBRARIES=\"\${_sh}\${DYLD_INSERT_LIBRARIES:+:\$DYLD_INSERT_LIBRARIES}\""
+    puts $fp "exec ${packagebindir}/codex \"\$@\""
+    close $fp
+    file attributes ${w} -permissions 0755
+}
+
+post-destroot {
+    # Rust 1.95 setzt upstream mindestens 10.12. Unsere RUSTFLAGS (build.env) setzen
+    # den letzten Linkerparameter auf 10.9; das Audit verifiziert das, sonst nicht installieren.
+    system "${filespath}/codex-macos109-audit.sh ${destroot}${libexecdir}"
+}
+
+livecheck.type      none

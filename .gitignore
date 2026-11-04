@@ -1,0 +1,28 @@
+# --- host-lokal / generiert, nie ins Repo ---
+HOST-NOTES.md
+.sys-symbols-10.9.txt
+_*.log
+*.log
+*.status
+work/
+distfiles/
+mobilecast/
+deployment-target-probe/target/
+ports/PortIndex*
+work
+# Sicherungskopien
+*.bak
+*.bak.*
+*.bak-*
+*.backup*
+*.backup-*
+*.orig
+*.orig-*
+*.before-*
+README.md.backup-*
+setup-local-ports.sh.bak.*
+# Arbeitsnotizen im Firefox-Overlay
+ports/www/firefox-x11/_edited-*.txt
+# veraltetes Duplikat (Portfile nutzt mcp-config.json.in)
+ports/llm/claude-code/files/mavericks/computer-use/mcp-config.json
+.DS_Store

@@ -1,0 +1,103 @@
+--- src/make.bash.orig
++++ src/make.bash
+@@ -191,7 +191,7 @@
+ 	exit 1
+ fi
+ rm -f cmd/dist/dist
+-bootstrapenv "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
++GOROOT="$GOROOT_BOOTSTRAP" GO111MODULE=off GOENV=off GOOS="" GOARCH="" GOEXPERIMENT="" GOFLAGS="-ldflags=$BOOT_GO_LDFLAGS" "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
+ 
+ # -e doesn't propagate out of eval, so check success by hand.
+ eval $(./cmd/dist/dist env -p || echo FAIL=true)
+--- src/crypto/x509/internal/macos/security.go.orig
++++ src/crypto/x509/internal/macos/security.go
+@@ -197,22 +197,17 @@
+ }
+ func x509_SecTrustGetResult_trampoline()
+ 
+-//go:cgo_import_dynamic x509_SecTrustEvaluateWithError SecTrustEvaluateWithError "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+-
+ func SecTrustEvaluateWithError(trustObj CFRef) (int, error) {
+-	var errRef CFRef
+-	ret := syscall(abi.FuncPCABI0(x509_SecTrustEvaluateWithError_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&errRef)), 0, 0, 0, 0)
+-	if int32(ret) != 1 {
+-		errStr := CFErrorCopyDescription(errRef)
+-		err := errors.New(CFStringToString(errStr))
+-		errCode := CFErrorGetCode(errRef)
+-		CFRelease(errRef)
+-		CFRelease(errStr)
+-		return errCode, err
++	result, err := SecTrustEvaluate(trustObj)
++	if err != nil {
++		return 0, err
++	}
++	// kSecTrustResultProceed and kSecTrustResultUnspecified are successful.
++	if result == 1 || result == 4 {
++		return 0, nil
+ 	}
+-	return 0, nil
++	return ErrSecNotTrusted, errors.New("SecTrustEvaluate: certificate verification failed")
+ }
+-func x509_SecTrustEvaluateWithError_trampoline()
+ 
+ //go:cgo_import_dynamic x509_SecTrustGetCertificateCount SecTrustGetCertificateCount "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+ 
+--- src/crypto/x509/internal/macos/security.s.orig
++++ src/crypto/x509/internal/macos/security.s
+@@ -25,8 +25,6 @@
+ 	JMP x509_SecTrustEvaluate(SB)
+ TEXT ·x509_SecTrustGetResult_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecTrustGetResult(SB)
+-TEXT ·x509_SecTrustEvaluateWithError_trampoline(SB),NOSPLIT,$0-0
+-	JMP x509_SecTrustEvaluateWithError(SB)
+ TEXT ·x509_SecTrustGetCertificateCount_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecTrustGetCertificateCount(SB)
+ TEXT ·x509_SecTrustGetCertificateAtIndex_trampoline(SB),NOSPLIT,$0-0
+--- src/runtime/sys_darwin.go.orig
++++ src/runtime/sys_darwin.go
+@@ -702,7 +702,6 @@
+ //go:cgo_import_dynamic libc_pthread_cond_signal pthread_cond_signal "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_arc4random_buf arc4random_buf "/usr/lib/libSystem.B.dylib"
+ 
+-//go:cgo_import_dynamic libc_notify_is_valid_token notify_is_valid_token "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_xpc_date_create_from_current xpc_date_create_from_current "/usr/lib/libSystem.B.dylib"
+ 
+ //go:cgo_import_dynamic libc_issetugid issetugid "/usr/lib/libSystem.B.dylib"
+--- src/runtime/sys_darwin_amd64.s.orig
++++ src/runtime/sys_darwin_amd64.s
+@@ -496,7 +496,6 @@
+ 
+ TEXT runtime·osinit_hack_trampoline(SB),NOSPLIT,$0
+ 	MOVQ	$0, DI	// arg 1 val
+-	CALL	libc_notify_is_valid_token(SB)
+ 	CALL	libc_xpc_date_create_from_current(SB)
+ 	RET
+ 
+--- src/cmd/link/internal/ld/macho.go.orig
++++ src/cmd/link/internal/ld/macho.go
+@@ -427,11 +427,8 @@
+ 			var version uint32
+ 			switch ctxt.Arch.Family {
+ 			case sys.ARM64, sys.AMD64:
+-				// This must be fairly recent for Apple signing (go.dev/issue/30488).
+-				// Having too old a version here was also implicated in some problems
+-				// calling into macOS libraries (go.dev/issue/56784).
+-				// In general this can be the most recent supported macOS version.
+-				version = 11<<16 | 0<<8 | 0<<0 // 11.0.0
++				// Mavericks backport.
++				version = 10<<16 | 9<<8 | 0<<0 // 10.9.0
+ 			}
+ 			ml := newMachoLoad(ctxt.Arch, imacho.LC_BUILD_VERSION, 4)
+ 			ml.data[0] = uint32(machoPlatform)
+--- src/cmd/dist/buildtool.go.orig
++++ src/cmd/dist/buildtool.go
+@@ -244,6 +244,9 @@
+ 		"install",
+ 		"-tags=math_big_pure_go compiler_bootstrap purego",
+ 	}
++	if goldflags != "" {
++		cmd = append(cmd, "-ldflags="+goldflags)
++	}
+ 	if vflag > 0 {
+ 		cmd = append(cmd, "-v")
+ 	}

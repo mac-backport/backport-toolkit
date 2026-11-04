@@ -1,0 +1,18 @@
+--- common.gypi.orig
++++ common.gypi
+@@ -737,7 +737,14 @@
+           ['_type!="static_library"', {
+             'xcode_settings': {
+               'OTHER_LDFLAGS': [
+-                '-Wl,-search_paths_first'
++                '-Wl,-search_paths_first',
++                # backport-toolkit: MacportsLegacySupport auf ALLE nicht-statischen
++                # Targets linken (Host-Tools + finales node). Nodes gyp-Makefiles
++                # ignorieren Env-/make-LDFLAGS -> MLS-Symbole (futimens/utimensat/
++                # mach_continuous_time; 10.12/10.13) waeren sonst undefined. Der
++                # Include-Pfad kommt bereits via C_INCLUDE_PATH (legacysupport-PG).
++                '-L/opt/local/lib',
++                '-lMacportsLegacySupport',
+               ],
+             },
+           }],

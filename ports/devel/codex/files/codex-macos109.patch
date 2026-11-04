@@ -1,0 +1,133 @@
+--- codex-rs/code-mode-protocol/build.rs
++++ codex-rs/code-mode-protocol/build.rs
+@@ -5,7 +5,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     println!("cargo:rerun-if-changed=src/grpc");
+
+     let mut config = tonic_prost_build::Config::new();
+-    config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);
++    // macOS-10.9-Backport: natives protoc (PROTOC-env) bevorzugen; das vendored
++    // Prebuilt braucht 10.13-libc++ und stirbt auf 10.9.
++    match std::env::var("PROTOC") {
++        Ok(p) => config.protoc_executable(PathBuf::from(p)),
++        Err(_) => config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?),
++    };
+     let proto_files = glob::glob("src/grpc/*.proto")?.collect::<Result<Vec<_>, _>>()?;
+
+     tonic_prost_build::configure()
+--- codex-rs/code-mode-runtime/Cargo.toml
++++ codex-rs/code-mode-runtime/Cargo.toml
+@@ -21,7 +21,7 @@
+ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+ tokio-util = { workspace = true, features = ["rt"] }
+ tracing = { workspace = true }
+-v8 = { workspace = true, features = ["v8_enable_sandbox"] }
++v8 = { workspace = true }
+
+ [dev-dependencies]
+ pretty_assertions = { workspace = true }
+--- codex-rs/user-verification/Cargo.toml
++++ codex-rs/user-verification/Cargo.toml
+@@ -14,16 +14,6 @@
+ thiserror = { workspace = true }
+ tracing = { workspace = true }
+ 
+-[target.'cfg(target_os = "macos")'.dependencies]
+-block2 = "0.6.2"
+-core-foundation = "0.10"
+-dirs = { workspace = true }
+-objc2 = "0.6.3"
+-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
+-objc2-local-authentication = { version = "0.3.2", default-features = false, features = ["std", "LAContext", "LABiometryType", "block2", "objc2-security"] }
+-security-framework = { version = "3.5", features = ["OSX_10_15"] }
+-security-framework-sys = "2.15"
+-
+ [dev-dependencies]
+ p256 = { version = "0.13", features = ["ecdsa"] }
+ pretty_assertions = { workspace = true }
+--- codex-rs/user-verification/src/lib.rs
++++ codex-rs/user-verification/src/lib.rs
+@@ -4,13 +4,6 @@
+ mod error;
+ mod guard;
+ mod key_namespace;
+-#[cfg(any(target_os = "macos", test))]
+-mod lifecycle_lock;
+-#[cfg(any(target_os = "macos", test))]
+-mod native_operation;
+-#[cfg(any(target_os = "macos", test))]
+-mod platform_macos;
+-#[cfg(not(target_os = "macos"))]
+ mod unsupported;
+ 
+ pub use credential::UserVerificationKeyCreation;
+@@ -60,32 +53,18 @@
+ 
+ /// Reports whether this build contains a native provider, independently of local readiness.
+ pub fn platform_supported() -> bool {
+-    cfg!(target_os = "macos")
++    false
+ }
+ 
+ /// Probes biometric hardware without reading credentials, prompting, or checking enrollment.
+ /// This performs local OS work; async callers should run it off their executor during setup.
+ pub fn device_supported() -> bool {
+-    #[cfg(target_os = "macos")]
+-    {
+-        platform_macos::device_supported()
+-    }
+-    #[cfg(not(target_os = "macos"))]
+-    {
+-        false
+-    }
++    false
+ }
+ 
+ pub fn platform_provider(
+     namespace: UserVerificationKeyNamespace,
+ ) -> Arc<dyn UserVerificationProvider> {
+-    #[cfg(target_os = "macos")]
+-    {
+-        Arc::new(platform_macos::NativeProvider { namespace })
+-    }
+-    #[cfg(not(target_os = "macos"))]
+-    {
+-        let _ = namespace.label;
+-        Arc::new(unsupported::UnsupportedProvider)
+-    }
++    let _ = namespace.label;
++    Arc::new(unsupported::UnsupportedProvider)
+ }
+--- codex-rs/utils/pty/src/posix_child.rs
++++ codex-rs/utils/pty/src/posix_child.rs
+@@ -35,9 +35,10 @@
+ #[cfg(target_os = "macos")]
+ const POSIX_SPAWN_SETSID: libc::c_int = 0x0400;
+ 
+-// Available since macOS 10.15 and in Rust's bundled musl. Older glibc needs
+-// runtime detection so this optimization does not raise our minimum libc version.
+-#[cfg(any(target_os = "macos", target_env = "musl"))]
++// Available in Rust's bundled musl. Darwin only added this in macOS 10.15,
++// while older glibc may not provide it either, so those targets use runtime
++// detection below rather than raising the minimum system version.
++#[cfg(target_env = "musl")]
+ unsafe extern "C" {
+     fn posix_spawn_file_actions_addchdir_np(
+         actions: *mut libc::posix_spawn_file_actions_t,
+@@ -110,7 +111,7 @@
+             ChildDropPolicy::ReapOnly => Some(reaper::sender()?),
+         };
+ 
+-        #[cfg(all(target_os = "linux", target_env = "gnu"))]
++        #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+         let addchdir = {
+             // SAFETY: dlsym returns the documented function signature when present.
+             let symbol = unsafe {
+@@ -132,7 +133,7 @@
+                 >(symbol)
+             }
+         };
+-        #[cfg(any(target_os = "macos", target_env = "musl"))]
++        #[cfg(target_env = "musl")]
+         let addchdir = posix_spawn_file_actions_addchdir_np;
+ 
+         // Subscribe before spawning so a child that exits immediately cannot be missed.

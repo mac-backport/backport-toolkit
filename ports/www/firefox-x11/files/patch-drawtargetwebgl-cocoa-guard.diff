@@ -1,0 +1,20 @@
+--- dom/canvas/DrawTargetWebgl.cpp.orig
++++ dom/canvas/DrawTargetWebgl.cpp
+@@ -39,7 +39,7 @@
+ #include "nsIMemoryReporter.h"
+ #include "skia/include/core/SkPixmap.h"
+ 
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ #  include "mozilla/gfx/ScaledFontMac.h"
+ #endif
+ 
+@@ -6159,7 +6159,7 @@
+   DeviceColor color = aOptions.mCompositionOp == CompositionOp::OP_CLEAR
+                           ? DeviceColor(1, 1, 1, 1)
+                           : static_cast<const ColorPattern&>(aPattern).mColor;
+-#if defined(XP_MACOSX)
++#if defined(MOZ_WIDGET_COCOA)
+   // macOS uses gamma-aware blending with font smooth from subpixel AA.
+   // If font smoothing is requested, even if there is no subpixel AA, gamma-
+   // aware blending might be used and differing amounts of dilation might be

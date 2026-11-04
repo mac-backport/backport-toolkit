@@ -1,0 +1,98 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; -*-
+
+PortSystem          1.0
+PortGroup           legacysupport 1.1
+
+name                go-1.27
+version             1.27.3
+# backport-toolkit overlay: Tailscale 1.104.4 requires Go 1.27.3;
+# retain the Mavericks runtime/linker/x509 patches when updating upstream.
+# 2026-10-31: keep character devices out of Mavericks' select-backed kqueue
+# fallback (PTY EV_CLEAR busy-loop; panic in dropping KN_STAYQUEUED scan).
+# 2026-09-01 rev 1: loadSystemRoots-Patch gefixt (root.go laedt CA-Bundle auf
+# Darwin bedingungslos, umgeht crashenden Security.framework-systemVerify).
+# rev 2: ECHTER Fix des cgo-freien systemVerify-Crashs — corefoundation.go
+# CFArrayCreateMutable nutzt jetzt kCFTypeArrayCallBacks (per dlsym) statt NULL,
+# sonst Use-after-free der cert/policy-Objekte auf 10.9 -> __dynamic_cast SIGSEGV.
+# 2026-09-02: Selbst-Bootstrap (GOROOT_BOOTSTRAP=go-1.27), go-1.26-Dep entfernt.
+revision            0
+categories          lang
+supported_archs     x86_64
+license             BSD
+maintainers         nomaintainer
+description         Go ${version} backported to macOS 10.9
+long_description    Source-built Go ${version}, self-bootstrapping via the already \
+                    installed go-1.27, patched for Mavericks. Die alte Bootstrap-Kette \
+                    go-1.17..go-1.26 ist damit ueberfluessig -- go-1.27 ist der Endzustand.
+
+homepage            https://go.dev
+master_sites        https://go.dev/dl/ \
+                    https://dl.google.com/go/
+distfiles           go${version}.src.tar.gz
+worksrcdir          go
+checksums           rmd160  9cb5b3a646b2e63c2c4f5d7ef5a034114fe3d1f2 \
+                    sha256  6e7749035cf360f06b2575d162ea79df9fda8ef671889e5c375f8e50777f26bb \
+                    size    35134035
+
+depends_build       port:clang-22
+depends_lib         port:legacy-support port:curl-ca-bundle
+patchfiles          patch-mavericks.diff
+
+use_configure       no
+use_parallel_build  no
+build.jobs          -1
+
+set goroot_final    ${prefix}/lib/${name}
+build.dir           ${worksrcpath}/src
+build.cmd           ./make.bash
+build.target
+# backport-toolkit overlay: name the MacPorts archive explicitly so /usr/local
+# cannot supply an older dylib with an @executable_path install name.
+build.env           GOROOT=${worksrcpath} \
+                    GOARCH=amd64 \
+                    GOOS=darwin \
+                    GOHOSTARCH=amd64 \
+                    GOMAXPROCS=3 \
+                    GOROOT_FINAL=${goroot_final} \
+                    GOROOT_BOOTSTRAP=${prefix}/lib/go-1.27 \
+                    CC=${prefix}/bin/clang-mp-22 \
+                    MACOSX_DEPLOYMENT_TARGET=10.9 \
+                    GO_EXTLINK_ENABLED=1 \
+                    GO_LDFLAGS=-extldflags=${prefix}/lib/libMacportsLegacySupport.a \
+                    BOOT_GO_LDFLAGS=-extldflags=${prefix}/lib/libMacportsLegacySupport.a \
+                    "CGO_LDFLAGS=-g -O2 ${prefix}/lib/libMacportsLegacySupport.a -mmacosx-version-min=10.9"
+
+post-build {
+    if {[file exists ${worksrcpath}/pkg/bootstrap]} {
+        delete ${worksrcpath}/pkg/bootstrap
+    }
+}
+
+destroot {
+    set grfdir ${destroot}${goroot_final}
+    xinstall -d ${grfdir} ${destroot}${prefix}/bin
+    foreach f {api bin lib misc pkg src test VERSION} {
+        if {[file exists ${worksrcpath}/${f}]} {
+            copy ${worksrcpath}/${f} ${grfdir}
+        }
+    }
+    ln -s ../lib/${name}/bin/go ${destroot}${prefix}/bin/go-1.27
+    ln -s ../lib/${name}/bin/gofmt ${destroot}${prefix}/bin/gofmt-1.27
+}
+
+post-destroot {
+    foreach program {go gofmt} {
+        set binary ${destroot}${goroot_final}/bin/${program}
+        set commands [exec /usr/bin/otool -l ${binary}]
+        if {![regexp {LC_VERSION_MIN_MACOSX\s+cmdsize\s+[0-9]+\s+version\s+10\.9(\s|$)} ${commands}]} {
+            return -code error "${program} is not stamped for macOS 10.9"
+        }
+        set libraries [exec /usr/bin/otool -L ${binary}]
+        if {[regexp {/usr/local/|@executable_path|libMacportsLegacySupport\.dylib} ${libraries}]} {
+            return -code error "${program} has an unexpected non-system runtime dependency"
+        }
+    }
+    system "unset DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FORCE_FLAT_NAMESPACE; DYLD_BIND_AT_LAUNCH=1 ${destroot}${goroot_final}/bin/go version"
+}
+
+livecheck.type      none

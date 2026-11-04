@@ -1,0 +1,107 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           golang 1.0
+# backport-toolkit overlay: local 10.9 override of devel/gh.
+# Upstream builds from source only on 10.13+ and otherwise repackages the
+# official macOS binary, which needs notify_is_valid_token (10.10+) and fails
+# to load on 10.9. Here gh is built from source with the Mavericks Go backport
+# (go-1.27), CGO off, LegacySupport linked statically - like net/tailscale.
+legacysupport.use_static yes
+
+go.setup            github.com/cli/cli 2.103.3 v
+go.package          github.com/cli/cli/v2
+go.offline_build    yes
+go.bin              ${prefix}/bin/go-1.27
+name                gh
+revision            0
+
+homepage            https://cli.github.com
+
+description         GitHub's official command line tool
+
+long_description    ${name} is GitHub on the command line. It brings pull \
+                    requests, issues, and other GitHub concepts to the \
+                    terminal next to where you are already working with git \
+                    and your code.
+
+categories          devel
+supported_archs     x86_64
+installs_libs       no
+license             MIT
+maintainers         {gmail.com:herby.gillot @herbygillot} \
+                    openmaintainer
+
+# Source tarball from upstream GitHub (golang PG default); vendor tarball made
+# with `go-1.27 mod vendor` from the same source, hosted as a release asset of
+# the backport-toolkit repo (tag `distfiles`).
+dist_subdir         ${name}
+distname            cli-${version}
+master_sites-append https://github.com/mac-backport/backport-toolkit/releases/download/distfiles/:vendor
+distfiles-append    ${name}-${version}-vendor.tar.gz:vendor
+
+checksums           cli-${version}.tar.gz \
+                    rmd160  ffedeb2eec2d99a7436a6ab9fe611ee0535f16de \
+                    sha256  bb148138a3a2fe023e57c78042fe3b42fc09171c0e8fff4cf983b227b7a2eade \
+                    size    15473846 \
+                    ${name}-${version}-vendor.tar.gz \
+                    rmd160  5295c02722a1b108260d13d220974c495180024c \
+                    sha256  abb1fb579b540030480ba40f6134738f1346728fc9c1923eeef5986d12aad95d \
+                    size    9344417
+
+depends_build-delete port:go
+depends_build-append port:go-1.27 port:legacy-support
+
+post-extract {
+    # vendor/ from the second tarball into the source tree -> -mod=vendor
+    move ${workpath}/vendor ${worksrcpath}/vendor
+}
+
+build.env-append    CGO_ENABLED=0 \
+                    GOTOOLCHAIN=local \
+                    GOFLAGS=-mod=vendor \
+                    MACOSX_DEPLOYMENT_TARGET=10.9
+
+# Same flags as the upstream script/build.go (version/date), plus static MLS.
+build.pre_args-append \
+    -trimpath \
+    -ldflags \" \
+        -extldflags=${prefix}/lib/libMacportsLegacySupport.a \
+        -X github.com/cli/cli/v2/internal/build.Version=${version} \
+        -X github.com/cli/cli/v2/internal/build.Date=2026-11-04 \
+    \"
+build.args          -o bin/${name} ./cmd/${name}
+
+post-build {
+    # Manpages: gen-docs needs the same static MLS link as gh (openat/*at come
+    # from LegacySupport on 10.9), so build it explicitly instead of `go run`.
+    file mkdir ${worksrcpath}/share/man/man1
+    set goenv "env CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=vendor MACOSX_DEPLOYMENT_TARGET=10.9 GOCACHE=${workpath}/.gocache"
+    system -W ${worksrcpath} "${goenv} ${go.bin} build -ldflags '-extldflags=${prefix}/lib/libMacportsLegacySupport.a' -o bin/gen-docs ./cmd/gen-docs"
+    system -W ${worksrcpath} "./bin/gen-docs --man-page --doc-path ./share/man/man1/"
+}
+
+# backport-toolkit overlay: never download an unpatched Go toolchain.
+pre-build {
+    set compiler_version [string trim [exec ${go.bin} env GOVERSION]]
+    if {![regexp {^go([0-9.]+)$} ${compiler_version} -> compiler_version] ||
+        [vercmp ${compiler_version} 1.27.3] < 0} {
+        return -code error "gh ${version} requires the Mavericks Go backport >= 1.27.3"
+    }
+}
+
+destroot {
+    xinstall -m 0755 ${worksrcpath}/bin/${name} ${destroot}${prefix}/bin/
+    xinstall -d ${destroot}${prefix}/share/man/man1
+    eval xinstall -m 0644 [glob ${worksrcpath}/share/man/man1/*.1] ${destroot}${prefix}/share/man/man1/
+
+    set bash_completions_path ${destroot}${prefix}/share/bash-completion/completions
+    set zsh_completions_path ${destroot}${prefix}/share/zsh/site-functions
+    set fish_completions_path ${destroot}${prefix}/share/fish/vendor_completions.d
+    xinstall -d ${bash_completions_path} ${zsh_completions_path} ${fish_completions_path}
+    system -W ${destroot}${prefix}/bin "./${name} completion -s bash > ${bash_completions_path}/${name}"
+    system -W ${destroot}${prefix}/bin "./${name} completion -s zsh > ${zsh_completions_path}/_${name}"
+    system -W ${destroot}${prefix}/bin "./${name} completion -s fish > ${fish_completions_path}/${name}.fish"
+}
+
+livecheck.type      none

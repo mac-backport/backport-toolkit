@@ -1,0 +1,11 @@
+--- compiler/rustc_target/src/spec/base/apple/mod.rs.orig
++++ compiler/rustc_target/src/spec/base/apple/mod.rs
+@@ -144,7 +144,7 @@
+         // LLVM notes that macOS 10.11+ and iOS 9+ default
+         // to v4, so we do the same.
+         // https://github.com/llvm/llvm-project/blob/378778a0d10c2f8d5df8ceff81f95b6002984a4b/clang/lib/Driver/ToolChains/Darwin.cpp#L1203
+-        default_dwarf_version: 4,
++        default_dwarf_version: 2,
+         frame_pointer: match arch {
+             // clang ignores `-fomit-frame-pointer` for Armv7, it only accepts `-momit-leaf-frame-pointer`
+             Arch::Armv7k | Arch::Armv7s => FramePointer::Always,

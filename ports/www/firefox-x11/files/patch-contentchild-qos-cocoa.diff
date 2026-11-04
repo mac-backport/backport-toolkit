@@ -1,0 +1,16 @@
+--- dom/ipc/ContentChild.cpp.orig
++++ dom/ipc/ContentChild.cpp
+@@ -245,11 +245,11 @@
+ #  include "mozilla/WinDllServices.h"
+ #endif
+ 
+-#if defined(XP_MACOSX)
++#if defined(MOZ_WIDGET_COCOA)
+ #  include <sys/qos.h>
+ 
+ #  include "nsMacUtilsImpl.h"
+-#endif /* XP_MACOSX */
++#endif /* MOZ_WIDGET_COCOA */
+ 
+ #ifdef MOZ_X11
+ #  include "mozilla/X11Util.h"

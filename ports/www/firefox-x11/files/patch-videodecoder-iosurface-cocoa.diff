@@ -1,0 +1,38 @@
+--- dom/media/webcodecs/VideoDecoder.cpp.orig
++++ dom/media/webcodecs/VideoDecoder.cpp
+@@ -28,7 +28,7 @@
+ #include "mozilla/dom/WebCodecsUtils.h"
+ #include "nsPrintfCString.h"
+ 
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ #  include "MacIOSurfaceImage.h"
+ #elif MOZ_WAYLAND
+ #  include "mozilla/layers/DMABUFSurfaceImage.h"
+@@ -310,7 +310,7 @@
+       }
+       return SurfaceFormatToVideoPixelFormat(texture->GetFormat());
+     }
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+     if (layers::MacIOSurfaceImage* image = aImage->AsMacIOSurfaceImage()) {
+       MOZ_ASSERT(image->GetSurface());
+       return SurfaceFormatToVideoPixelFormat(image->GetSurface()->GetFormat());
+@@ -400,7 +400,7 @@
+   return colorSpace;
+ }
+ 
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ static VideoColorSpaceInternal GuessColorSpace(const MacIOSurface* aSurface) {
+   if (!aSurface) {
+     return {};
+@@ -487,7 +487,7 @@
+       }
+       return colorSpace;
+     }
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+     // TODO: Make sure VideoFrame can interpret its internal data in different
+     // formats.
+     if (layers::MacIOSurfaceImage* image = aImage->AsMacIOSurfaceImage()) {

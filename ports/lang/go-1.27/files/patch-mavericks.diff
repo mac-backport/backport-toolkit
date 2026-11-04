@@ -1,0 +1,242 @@
+--- src/make.bash.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/make.bash	2026-09-01 23:52:06.000000000 +0200
+@@ -191,7 +191,7 @@
+ 	exit 1
+ fi
+ rm -f cmd/dist/dist
+-bootstrapenv "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
++GOROOT="$GOROOT_BOOTSTRAP" GO111MODULE=off GOENV=off GOOS="" GOARCH="" GOEXPERIMENT="" GOFLAGS="-ldflags=$BOOT_GO_LDFLAGS" "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
+ 
+ # -e doesn't propagate out of eval, so check success by hand.
+ eval $(./cmd/dist/dist env -p || echo FAIL=true)
+--- src/crypto/x509/internal/macos/security.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/internal/macos/security.go	2026-09-01 23:52:06.000000000 +0200
+@@ -105,22 +105,16 @@
+ }
+ func x509_SecTrustEvaluate_trampoline()
+ 
+-//go:cgo_import_dynamic x509_SecTrustEvaluateWithError SecTrustEvaluateWithError "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+-
+ func SecTrustEvaluateWithError(trustObj CFRef) (int, error) {
+-	var errRef CFRef
+-	ret := syscall(abi.FuncPCABI0(x509_SecTrustEvaluateWithError_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&errRef)), 0, 0, 0, 0)
+-	if int32(ret) != 1 {
+-		errStr := CFErrorCopyDescription(errRef)
+-		err := errors.New(CFStringToString(errStr))
+-		errCode := CFErrorGetCode(errRef)
+-		CFRelease(errRef)
+-		CFRelease(errStr)
+-		return errCode, err
++	result, err := SecTrustEvaluate(trustObj)
++	if err != nil {
++		return 0, err
++	}
++	if result == 1 || result == 4 {
++		return 0, nil
+ 	}
+-	return 0, nil
++	return ErrSecNotTrusted, errors.New("SecTrustEvaluate: certificate verification failed")
+ }
+-func x509_SecTrustEvaluateWithError_trampoline()
+ 
+ //go:cgo_import_dynamic x509_SecCertificateCopyData SecCertificateCopyData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+ 
+@@ -135,13 +129,21 @@
+ }
+ func x509_SecCertificateCopyData_trampoline()
+ 
+-//go:cgo_import_dynamic x509_SecTrustCopyCertificateChain SecTrustCopyCertificateChain "/System/Library/Frameworks/Security.framework/Versions/A/Security"
++//go:cgo_import_dynamic x509_SecTrustGetCertificateCount SecTrustGetCertificateCount "/System/Library/Frameworks/Security.framework/Versions/A/Security"
++
++func SecTrustGetCertificateCount(trustObj CFRef) int {
++	ret := syscall(abi.FuncPCABI0(x509_SecTrustGetCertificateCount_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
++	return int(ret)
++}
++func x509_SecTrustGetCertificateCount_trampoline()
++
++//go:cgo_import_dynamic x509_SecTrustGetCertificateAtIndex SecTrustGetCertificateAtIndex "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+ 
+-func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, error) {
+-	ret := syscall(abi.FuncPCABI0(x509_SecTrustCopyCertificateChain_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
++func SecTrustGetCertificateAtIndex(trustObj CFRef, i int) (CFRef, error) {
++	ret := syscall(abi.FuncPCABI0(x509_SecTrustGetCertificateAtIndex_trampoline), uintptr(trustObj), uintptr(i), 0, 0, 0, 0)
+ 	if ret == 0 {
+-		return 0, OSStatus{"SecTrustCopyCertificateChain", int32(ret)}
++		return 0, OSStatus{"SecTrustGetCertificateAtIndex", int32(ret)}
+ 	}
+ 	return CFRef(ret), nil
+ }
+-func x509_SecTrustCopyCertificateChain_trampoline()
++func x509_SecTrustGetCertificateAtIndex_trampoline()
+--- src/crypto/x509/internal/macos/security.s.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/internal/macos/security.s	2026-09-01 23:52:06.000000000 +0200
+@@ -19,9 +19,9 @@
+ 	JMP x509_SecTrustSetVerifyDate(SB)
+ TEXT ·x509_SecTrustEvaluate_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecTrustEvaluate(SB)
+-TEXT ·x509_SecTrustEvaluateWithError_trampoline(SB),NOSPLIT,$0-0
+-	JMP x509_SecTrustEvaluateWithError(SB)
+ TEXT ·x509_SecCertificateCopyData_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_SecCertificateCopyData(SB)
+-TEXT ·x509_SecTrustCopyCertificateChain_trampoline(SB),NOSPLIT,$0-0
+-	JMP x509_SecTrustCopyCertificateChain(SB)
++TEXT ·x509_SecTrustGetCertificateCount_trampoline(SB),NOSPLIT,$0-0
++	JMP x509_SecTrustGetCertificateCount(SB)
++TEXT ·x509_SecTrustGetCertificateAtIndex_trampoline(SB),NOSPLIT,$0-0
++	JMP x509_SecTrustGetCertificateAtIndex(SB)
+--- src/crypto/x509/internal/macos/corefoundation.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/internal/macos/corefoundation.go	2026-09-01 23:52:06.000000000 +0200
+@@ -156,9 +156,28 @@
+ func x509_CFRelease_trampoline()
+ 
+ //go:cgo_import_dynamic x509_CFArrayCreateMutable CFArrayCreateMutable "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
++//go:cgo_import_dynamic x509_dlsym dlsym "/usr/lib/libSystem.B.dylib"
++
++func x509_dlsym_trampoline()
++
++// kCFTypeArrayCallBacksAddr is &kCFTypeArrayCallBacks, resolved once at init via
++// dlsym. Mavericks backport: on macOS 10.9 a CFMutableArray created with NULL
++// callbacks does not retain its elements, so the SecCertificate/SecPolicy objects
++// are released before SecTrust uses them -> use-after-free / __dynamic_cast
++// SIGSEGV. Passing kCFTypeArrayCallBacks makes the array retain its elements.
++// (The symbol is a CoreFoundation data global; it cannot be reached via
++// //go:cgo_import_dynamic address relocation cgo-free, so dlsym is used.)
++var kCFTypeArrayCallBacksAddr = func() uintptr {
++	name := []byte("kCFTypeArrayCallBacks\x00")
++	p := unsafe.Pointer(&name[0])
++	// dlsym(RTLD_DEFAULT, name); RTLD_DEFAULT == -2 on darwin.
++	r := syscall(abi.FuncPCABI0(x509_dlsym_trampoline), ^uintptr(1), uintptr(p), 0, 0, 0, 0)
++	runtime.KeepAlive(name)
++	return r
++}()
+ 
+ func CFArrayCreateMutable() CFRef {
+-	ret := syscall(abi.FuncPCABI0(x509_CFArrayCreateMutable_trampoline), kCFAllocatorDefault, 0, 0 /* kCFTypeArrayCallBacks */, 0, 0, 0)
++	ret := syscall(abi.FuncPCABI0(x509_CFArrayCreateMutable_trampoline), kCFAllocatorDefault, 0, kCFTypeArrayCallBacksAddr, 0, 0, 0)
+ 	return CFRef(ret)
+ }
+ func x509_CFArrayCreateMutable_trampoline()
+--- src/crypto/x509/internal/macos/corefoundation.s.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/internal/macos/corefoundation.s	2026-09-01 23:52:06.000000000 +0200
+@@ -41,3 +41,7 @@
+ 	JMP x509_CFErrorGetCode(SB)
+ TEXT ·x509_CFStringCreateExternalRepresentation_trampoline(SB),NOSPLIT,$0-0
+ 	JMP x509_CFStringCreateExternalRepresentation(SB)
++
++// Mavericks backport: dlsym-Trampolin (arch-unabhaengig).
++TEXT ·x509_dlsym_trampoline(SB),NOSPLIT,$0-0
++	JMP	x509_dlsym(SB)
+--- src/crypto/x509/root_darwin.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/root_darwin.go	2026-09-01 23:52:06.000000000 +0200
+@@ -10,8 +10,11 @@
+ 	"fmt"
+ )
+ 
+-// macOS has no default SSL_CERT_{FILE,DIR} paths.
+-var certFiles, certDirectories []string
++// Mavericks backport: 10.9's keychain lacks modern CA roots, so use the
++// MacPorts curl-ca-bundle as the on-disk system root source (loaded by
++// loadSystemRoots/loadOnDiskRoots in root.go).
++var certFiles = []string{"/opt/local/share/curl/curl-ca-bundle.crt"}
++var certDirectories []string
+ 
+ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+ 	certs := macos.CFArrayCreateMutable()
+@@ -76,13 +79,11 @@
+ 	}
+ 
+ 	chain := [][]*Certificate{{}}
+-	chainRef, err := macos.SecTrustCopyCertificateChain(trustObj)
+-	if err != nil {
+-		return nil, err
+-	}
+-	defer macos.CFRelease(chainRef)
+-	for i := 0; i < macos.CFArrayGetCount(chainRef); i++ {
+-		certRef := macos.CFArrayGetValueAtIndex(chainRef, i)
++	for i := 0; i < macos.SecTrustGetCertificateCount(trustObj); i++ {
++		certRef, err := macos.SecTrustGetCertificateAtIndex(trustObj, i)
++		if err != nil {
++			return nil, err
++		}
+ 		cert, err := exportCertificate(certRef)
+ 		if err != nil {
+ 			return nil, err
+--- src/crypto/x509/root.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/crypto/x509/root.go	2026-09-01 23:52:06.000000000 +0200
+@@ -137,6 +137,14 @@
+ func loadSystemRoots() (*CertPool, error) {
+ 	certFilePath, certDirPath := os.Getenv(certFileEnv), os.Getenv(certDirEnv)
+ 
++	// Mavericks backport: when root_darwin.go has baked in certFiles (the MacPorts
++	// CA bundle) and no SSL_CERT_{FILE,DIR} override is set, load the bundle directly
++	// and never return the systemPool marker. That keeps verification pure-Go and
++	// avoids the platform verifier (Security.framework SecTrustEvaluate SIGSEGVs on 10.9).
++	if certFilePath == "" && certDirPath == "" && (len(certFiles) > 0 || len(certDirectories) > 0) {
++		return loadOnDiskRoots(certFilePath, certDirPath)
++	}
++
+ 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
+ 		if certFilePath == "" && certDirPath == "" {
+ 			return &CertPool{systemPool: true}, nil
+--- src/runtime/sys_darwin.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/runtime/sys_darwin.go	2026-09-01 23:52:06.000000000 +0200
+@@ -625,7 +625,6 @@
+ //go:cgo_import_dynamic libc_pthread_cond_signal pthread_cond_signal "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_arc4random_buf arc4random_buf "/usr/lib/libSystem.B.dylib"
+ 
+-//go:cgo_import_dynamic libc_notify_is_valid_token notify_is_valid_token "/usr/lib/libSystem.B.dylib"
+ //go:cgo_import_dynamic libc_xpc_date_create_from_current xpc_date_create_from_current "/usr/lib/libSystem.B.dylib"
+ 
+ //go:cgo_import_dynamic libc_issetugid issetugid "/usr/lib/libSystem.B.dylib"
+--- src/runtime/sys_darwin_amd64.s.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/runtime/sys_darwin_amd64.s	2026-09-01 23:52:06.000000000 +0200
+@@ -496,7 +496,6 @@
+ 
+ TEXT runtime·osinit_hack_trampoline(SB),NOSPLIT,$0
+ 	MOVQ	$0, DI	// arg 1 val
+-	CALL	libc_notify_is_valid_token(SB)
+ 	CALL	libc_xpc_date_create_from_current(SB)
+ 	RET
+ 
+--- src/cmd/link/internal/ld/macho.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/cmd/link/internal/ld/macho.go	2026-09-01 23:52:06.000000000 +0200
+@@ -446,7 +446,7 @@
+ 	//	go.dev/issue/30488
+ 	//	go.dev/issue/56784
+ 	//	go.dev/issue/77917
+-	macOS  = macVersionFlag{13, 0, 0}
++	macOS  = macVersionFlag{10, 9, 0} // Mavericks backport: stamp LC_BUILD_VERSION minos 10.9
+ 	macSDK = macVersionFlag{26, 2, 0}
+ )
+ 
+--- src/cmd/dist/buildtool.go.orig	2026-09-01 23:52:06.000000000 +0200
++++ src/cmd/dist/buildtool.go	2026-09-01 23:52:06.000000000 +0200
+@@ -247,6 +247,9 @@
+ 		"install",
+ 		"-tags=math_big_pure_go compiler_bootstrap purego",
+ 	}
++	if goldflags != "" {
++		cmd = append(cmd, "-ldflags="+goldflags)
++	}
+ 	if vflag > 0 {
+ 		cmd = append(cmd, "-v")
+ 	}
+--- src/os/file_unix.go.orig
++++ src/os/file_unix.go
+@@ -188,6 +188,16 @@
+ 			if (runtime.GOOS == "darwin" || runtime.GOOS == "ios") && typ == syscall.S_IFIFO {
+ 				pollable = false
+ 			}
++
++			// Mavericks backport: character devices use the select-backed
++			// kqueue fallback. PTYs repeatedly report EVFILT_WRITE despite
++			// EV_CLEAR; concurrent close/scan can also leave a dropping
++			// KN_STAYQUEUED knote spinning under the kernel queue lock.
++			// Keep blocking character-device I/O off the runtime poller.
++			// Sockets and anonymous pipes retain normal poller support.
++			if runtime.GOOS == "darwin" && typ == syscall.S_IFCHR {
++				pollable = false
++			}
+ 		}
+ 	}
+ 

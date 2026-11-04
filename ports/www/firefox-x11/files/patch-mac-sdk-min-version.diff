@@ -1,0 +1,13 @@
+--- build/moz.configure/toolchain.configure.orig
++++ build/moz.configure/toolchain.configure
+@@ -252,7 +252,9 @@
+     )
+ 
+     def mac_sdk_min_version():
+-        return "26.5"
++        # MacPorts firefox-x11: 10.9-Backport nutzt live-System-Header via
++        # synthetischem SDK; Minimum entsprechend absenken.
++        return "10.9"
+ 
+     @depends(
+         "--with-macos-sdk",

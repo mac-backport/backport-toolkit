@@ -1,0 +1,32 @@
+#!/bin/sh
+# claude-code Launch-Script (MacPorts, ~/backport-toolkit-Overlay, 10.9-Backport).
+#
+# Abgeleitet vom offiziellen llm/claude-code (env-gesteuerte Update-Abschaltung),
+# ergaenzt um die Mavericks-10.9-Teile. Der Port patcht das Binary EINMAL beim
+# Build; dieses Script setzt nur Env + startet.
+#
+# Update-Abschaltung wie Upstream via DISABLE_UPDATES=1 (+ DISABLE_AUTOUPDATER=1
+# als Guertel; das Binary respektiert beide) + DISABLE_INSTALLATION_CHECKS=1.
+# installMethod in ~/.claude.json wird bewusst NICHT angefasst (Upstream tut das
+# auch nicht; die Env-Vars gaten die Updates).
+#
+# 10.9-Delta: libavxemu MUSS per DYLD-Insert geladen werden (pre-patcht das __text;
+# ins Binary linken haengt beim Start). Der Insert wuerde an alle Kindprozesse
+# vererbt und crasht dort native Nicht-AVX-Runtimes (z.B. Go-Tools wie tailscale) --
+# darum wird libdropinsert.dylib mit-inserted: ihr Konstruktor macht unsetenv() auf
+# DYLD_INSERT_LIBRARIES, nachdem libavxemu geladen ist. So behaelt claude die
+# AVX2-Emulation, seine Kinder erben eine saubere Umgebung.
+MAV=__MAVDIR__
+export DISABLE_UPDATES=1
+export DISABLE_AUTOUPDATER=1
+export DISABLE_INSTALLATION_CHECKS=1
+export USE_BUILTIN_RIPGREP=0
+export CLAUDE_CODE_USE_NATIVE_FILE_SEARCH=0
+export JSC_numberOfGCMarkers=1
+__TELEMETRY__
+if [ -f "$MAV/libavxemu.dylib" ] && ! sysctl -n machdep.cpu.leaf7_features 2>/dev/null | grep -qiw AVX2; then
+    _INS="$MAV/libavxemu.dylib"
+    [ -f "$MAV/libdropinsert.dylib" ] && _INS="$_INS:$MAV/libdropinsert.dylib"
+    export DYLD_INSERT_LIBRARIES="${_INS}${DYLD_INSERT_LIBRARIES:+:$DYLD_INSERT_LIBRARIES}"
+fi
+exec "$MAV/claude" --settings "$MAV/settings.json" --mcp-config "$MAV/mcp-config.json" "$@"

@@ -1,0 +1,101 @@
+--- audio/out/ao_coreaudio.c	2026-11-03 15:23:31.000000000 +0100
++++ audio/out/ao_coreaudio.c	2026-11-03 15:23:31.000000000 +0100
+@@ -34,6 +34,16 @@
+ // behavior of AVFoundation.
+ #define IDLE_TIME 7 * NSEC_PER_SEC
+ 
++// backport-toolkit overlay: dispatch_block_create/cancel gibt es erst ab macOS 10.10.
++// Gleiche Semantik (verzoegerter, abbrechbarer Stopp) ueber ein Abbruch-Token; alle Zugriffe
++// laufen auf p->queue (seriell). Der Block gibt sein Token selbst frei und fasst ao nur an,
++// wenn er nicht abgebrochen wurde (uninit bricht vor der Freigabe ab).
++#include <AvailabilityMacros.h>
++#if MAC_OS_X_VERSION_MIN_REQUIRED < 101000
++#define MP_NO_DISPATCH_BLOCK 1
++struct idle_token { int cancelled; };
++#endif
++
+ struct priv {
+     // This must be put in the front
+     struct coreaudio_cb_sem sem;
+@@ -49,7 +59,11 @@
+     bool change_physical_format;
+ 
+     // Block that is executed after `IDLE_TIME` to stop audio output unit.
++#if MP_NO_DISPATCH_BLOCK
++    struct idle_token *idle_work;
++#else
+     dispatch_block_t idle_work;
++#endif
+     dispatch_queue_t queue;
+ 
+     int hotplug_cb_registration_times;
+@@ -370,8 +384,12 @@
+     if (!p->idle_work)
+         return;
+ 
++#if MP_NO_DISPATCH_BLOCK
++    p->idle_work->cancelled = 1;   // Block gibt das Token selbst frei
++#else
+     dispatch_block_cancel(p->idle_work);
+     Block_release(p->idle_work);
++#endif
+     p->idle_work = NULL;
+ }
+ 
+@@ -381,6 +399,20 @@
+ 
+     cancel_and_release_idle_work(p);
+ 
++#if MP_NO_DISPATCH_BLOCK
++    struct idle_token *t = calloc(1, sizeof(*t));
++    if (!t)
++        return;
++    p->idle_work = t;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, IDLE_TIME), p->queue, ^{
++        if (!t->cancelled) {
++            p->idle_work = NULL;
++            MP_VERBOSE(ao, "Stopping audio unit due to idle timeout\n");
++            stop(ao);
++        }
++        free(t);
++    });
++#else
+     p->idle_work = dispatch_block_create(0, ^{
+         MP_VERBOSE(ao, "Stopping audio unit due to idle timeout\n");
+         stop(ao);
+@@ -388,6 +420,7 @@
+ 
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, IDLE_TIME),
+                    p->queue, p->idle_work);
++#endif
+ }
+ 
+ static void _reset(void *_ao)
+@@ -418,8 +451,12 @@
+     struct ao *ao = (struct ao *)_ao;
+     struct priv *p = ao->priv;
+ 
++#if MP_NO_DISPATCH_BLOCK
++    cancel_and_release_idle_work(p);
++#else
+     if (p->idle_work)
+         dispatch_block_cancel(p->idle_work);
++#endif
+ 
+     OSStatus err = AudioOutputUnitStart(p->audio_unit);
+     CHECK_CA_WARN("can't start audio unit");
+--- audio/out/ao_coreaudio_chmap.c	2026-11-03 15:23:31.000000000 +0100
++++ audio/out/ao_coreaudio_chmap.c	2026-11-03 15:23:31.000000000 +0100
+@@ -22,7 +22,12 @@
+ #include "ao_coreaudio_utils.h"
+ 
+ #include "ao_coreaudio_chmap.h"
++// backport-toolkit overlay: Einzel-Framework CoreAudioTypes erst ab macOS-10.15-SDK; davor in CoreAudio.
++#if __has_include(<CoreAudioTypes/CoreAudioTypes.h>)
+ #include <CoreAudioTypes/CoreAudioTypes.h>
++#else
++#include <CoreAudio/CoreAudioTypes.h>
++#endif
+ 
+ static const int speaker_map[][2] = {
+     { kAudioChannelLabel_Left,                 MP_SPEAKER_ID_FL   },

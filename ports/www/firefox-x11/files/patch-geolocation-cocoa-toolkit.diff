@@ -1,0 +1,11 @@
+--- dom/geolocation/moz.build.orig
++++ dom/geolocation/moz.build
+@@ -43,7 +43,7 @@
+     UNIFIED_SOURCES += [
+         "GeolocationSystemWin.cpp",
+     ]
+-elif CONFIG["OS_TARGET"] == "Darwin" and CONFIG["MOZ_BUILD_APP"] == "browser":
++elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa" and CONFIG["MOZ_BUILD_APP"] == "browser":
+     UNIFIED_SOURCES += [
+         "GeolocationSystemMac.mm",
+     ]

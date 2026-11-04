@@ -1,0 +1,31 @@
+--- a/xbmc/windowing/osx/WinSystemOSX.mm
++++ b/xbmc/windowing/osx/WinSystemOSX.mm
+@@ -843,7 +843,18 @@ bool CWinSystemOSX::DestroyWindow()
+   return true;
+ }
+ 
+-extern "C" void SDL_SetWidthHeight(int w, int h);
++static void SDL_SetWidthHeightCompat(int width, int height)
++{
++  // Kodi's historical bundled SDL carried a private SDL_SetWidthHeight()
++  // helper. Keep the same bookkeeping while using the stock MacPorts SDL.
++  SDL_Surface* screen = SDL_GetVideoSurface();
++  if (screen)
++  {
++    screen->w = width;
++    screen->h = height;
++  }
++}
++
+ bool CWinSystemOSX::ResizeWindowInternal(int newWidth, int newHeight, int newLeft, int newTop, void *additional)
+ {
+   bool ret = ResizeWindow(newWidth, newHeight, newLeft, newTop);
+@@ -897,7 +907,7 @@ bool CWinSystemOSX::ResizeWindow(int newWidth, int newHeight, int newLeft, int ne
+   // HACK: resize SDL's view manually so that mouse bounds are correctly updated.
+   // there are two parts to this, the internal SDL (current_video->screen) and
+   // the cocoa view ( handled in SetFullScreen).
+-  SDL_SetWidthHeight(newWidth, newHeight);
++  SDL_SetWidthHeightCompat(newWidth, newHeight);
+ 
+   [context makeCurrentContext];
+ 

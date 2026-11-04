@@ -1,0 +1,32 @@
+--- library/std/src/sys/pal/unix/stack_overflow.rs.orig
++++ library/std/src/sys/pal/unix/stack_overflow.rs
+@@ -331,7 +331,28 @@
+     unsafe fn get_stack_start() -> Option<*mut libc::c_void> {
+         let th = libc::pthread_self();
+         let stackptr = libc::pthread_get_stackaddr_np(th);
+-        Some(stackptr.map_addr(|addr| addr - libc::pthread_get_stacksize_np(th)))
++        let mut stacksize = libc::pthread_get_stacksize_np(th);
++        // backport-toolkit overlay (macOS 10.9 / Darwin 13): on Mavericks and
++        // earlier, pthread_get_stacksize_np() reports a bogus 512 KiB for the
++        // *main* thread instead of the real RLIMIT_STACK (typically 8 MiB); the
++        // stack top from pthread_get_stackaddr_np() stays correct. Using the
++        // bogus size would compute stack_start ~512 KiB below the top, i.e.
++        // inside the live stack, so install_main_guard_default() would MAP_FIXED
++        // a PROT_NONE guard page into valid stack and any deeper (but legal)
++        // recursion faults as a spurious "stack overflow". Only the main thread
++        // is affected; spawned threads report their real size and are untouched.
++        // See rust-lang/rust#43347. Upstream floors macOS at 10.12 where the
++        // quirk is gone, so it has no main-thread special-case here.
++        if libc::pthread_main_np() == 1 {
++            let mut rl: libc::rlimit = crate::mem::zeroed();
++            if libc::getrlimit(libc::RLIMIT_STACK, &mut rl) == 0
++                && rl.rlim_cur != libc::RLIM_INFINITY
++                && (rl.rlim_cur as usize) > stacksize
++            {
++                stacksize = rl.rlim_cur as usize;
++            }
++        }
++        Some(stackptr.map_addr(|addr| addr - stacksize))
+     }
+ 
+     #[cfg(target_os = "openbsd")]

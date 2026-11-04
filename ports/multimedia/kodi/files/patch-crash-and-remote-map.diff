@@ -1,0 +1,29 @@
+diff --git a/system/keymaps/customcontroller.AppleRemote.xml b/system/keymaps/customcontroller.AppleRemote.xml
+index 46d7d3e..764b784 100644
+--- a/system/keymaps/customcontroller.AppleRemote.xml
++++ b/system/keymaps/customcontroller.AppleRemote.xml
+@@ -101,7 +101,7 @@
+       <button id="2">VolumeDown</button>
+       <button id="3">StepBack</button>
+       <button id="4">StepForward</button>
+-      <button id="5">Pause</button>
++      <button id="5">Info</button>
+       <button id="6">Stop</button>
+       <button id="7">OSD</button>
+       <button id="8">Fullscreen</button>
+diff --git a/xbmc/video/windows/GUIWindowVideoBase.cpp b/xbmc/video/windows/GUIWindowVideoBase.cpp
+index 302c2d9..73c5a29 100644
+--- a/xbmc/video/windows/GUIWindowVideoBase.cpp
++++ b/xbmc/video/windows/GUIWindowVideoBase.cpp
+@@ -642,6 +642,11 @@ bool CGUIWindowVideoBase::OnSelect(int iItem)
+ bool CGUIWindowVideoBase::OnFileAction(int iItem, int action, std::string player)
+ {
+   CFileItemPtr item = m_vecItems->Get(iItem);
++  // The EventServer can deliver a queued action after the directory has been
++  // refreshed (notably across sleep/wake). Matrix and later guard this stale
++  // list index; without it Leia dereferences a null CFileItemPtr here.
++  if (!item)
++    return false;
+ 
+   // Reset the current start offset. The actual resume
+   // option is set in the switch, based on the action passed.

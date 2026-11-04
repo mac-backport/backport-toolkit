@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Firefox (X11)
+GenericName=Web Browser
+Comment=Native GTK/X11 Firefox 153 fuer macOS 10.9 (installiert, GPU-Prozess aus)
+Exec=/opt/local/bin/firefox %u
+Icon=/opt/local/lib/firefox/browser/chrome/icons/default/default128.png
+Terminal=false
+StartupNotify=false
+StartupWMClass=firefox-default
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;application/vnd.mozilla.xul+xml;x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/chrome;

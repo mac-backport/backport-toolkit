@@ -1,0 +1,20 @@
+--- src/crypto/crypto_context.cc.orig
++++ src/crypto/crypto_context.cc
+@@ -476,7 +476,17 @@
+   if (ortn) {
+     /* should never happen */
+   } else {
++#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
+     result = SecTrustEvaluateWithError(sec_trust, nullptr);
++#else
++    // macOS 10.9 Backport: SecTrustEvaluateWithError gibt es erst ab 10.14.
++    // Fallback auf das klassische SecTrustEvaluate + Result-Mapping
++    // (trusted == kSecTrustResultProceed | kSecTrustResultUnspecified).
++    SecTrustResultType __mpls_tres = kSecTrustResultInvalid;
++    if (SecTrustEvaluate(sec_trust, &__mpls_tres) == errSecSuccess)
++      result = (__mpls_tres == kSecTrustResultProceed ||
++                __mpls_tres == kSecTrustResultUnspecified);
++#endif
+   }
+ 
+   if (policy) {

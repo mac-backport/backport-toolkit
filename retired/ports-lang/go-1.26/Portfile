@@ -1,0 +1,68 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; -*-
+
+PortSystem          1.0
+PortGroup           legacysupport 1.1
+
+name                go-1.26
+version             1.26.8
+# 2026-09-01: CC clang-mp-16 -> clang-mp-22 (Doktrin: clang-22-only, matcht depends_build).
+revision            0
+categories          lang
+supported_archs     x86_64
+license             BSD
+maintainers         nomaintainer
+description         Go ${version} backported to macOS 10.9
+long_description    Source-built Go ${version}, bootstrapped by go-1.24 and patched for Mavericks.
+
+homepage            https://go.dev
+master_sites        file:///Users/imac/backport-toolkit/distfiles/go/
+distfiles           go${version}.src.tar.gz
+worksrcdir          go
+checksums           rmd160  28c3b017bf610a3dd409a0bb55b68fc483724317 \
+                    sha256  4e39b98e42f946fa05ac8bc5b71877df97dbdb7cbb1a777b541667ad7117fd2e \
+                    size    34150120
+
+depends_build       port:go-1.24 port:clang-22
+depends_lib         port:legacy-support port:curl-ca-bundle
+patchfiles          patch-mavericks.diff
+
+use_configure       no
+use_parallel_build  no
+build.jobs          -1
+
+set goroot_final    ${prefix}/lib/${name}
+build.dir           ${worksrcpath}/src
+build.cmd           ./make.bash
+build.target
+build.env           GOROOT=${worksrcpath} \
+                    GOARCH=amd64 \
+                    GOOS=darwin \
+                    GOHOSTARCH=amd64 \
+                    GOROOT_FINAL=${goroot_final} \
+                    GOROOT_BOOTSTRAP=${prefix}/lib/go-1.24 \
+                    CC=${prefix}/bin/clang-mp-22 \
+                    MACOSX_DEPLOYMENT_TARGET=10.9 \
+                    GO_EXTLINK_ENABLED=1 \
+                    GO_LDFLAGS=-extldflags=-lMacportsLegacySupport \
+                    BOOT_GO_LDFLAGS=-extldflags=-lMacportsLegacySupport \
+                    "CGO_LDFLAGS=-g -O2 -L${prefix}/lib -lMacportsLegacySupport -mmacosx-version-min=10.9"
+
+post-build {
+    if {[file exists ${worksrcpath}/pkg/bootstrap]} {
+        delete ${worksrcpath}/pkg/bootstrap
+    }
+}
+
+destroot {
+    set grfdir ${destroot}${goroot_final}
+    xinstall -d ${grfdir} ${destroot}${prefix}/bin
+    foreach f {api bin lib misc pkg src test VERSION} {
+        if {[file exists ${worksrcpath}/${f}]} {
+            copy ${worksrcpath}/${f} ${grfdir}
+        }
+    }
+    ln -s ../lib/${name}/bin/go ${destroot}${prefix}/bin/go-1.26
+    ln -s ../lib/${name}/bin/gofmt ${destroot}${prefix}/bin/gofmt-1.26
+}
+
+livecheck.type      none

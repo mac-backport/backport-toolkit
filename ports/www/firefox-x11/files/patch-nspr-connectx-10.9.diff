@@ -1,0 +1,17 @@
+--- nsprpub/pr/src/pthreads/ptio.c.orig
++++ nsprpub/pr/src/pthreads/ptio.c
+@@ -1807,6 +1807,14 @@
+ static PRInt32 pt_TCP_SendTo(PRFileDesc* fd, const void* buf, PRInt32 amount,
+                              PRIntn flags, const PRNetAddr* addr,
+                              PRIntervalTime timeout) {
++/* MacPorts firefox-x11 10.9-Backport: connectx()/sa_endpoints_t (TCP Fast Open)
++ * gibt es erst ab dem 10.11-SDK; Firefox' NSPR-Config definiert HAS_CONNECTX aber
++ * pauschal fuer Darwin. Auf dem 10.9-SDK aushebeln -> der !(LINUX||HAS_CONNECTX)-
++ * Stub (PR_NOT_IMPLEMENTED) greift; TFO ist auf 10.9 ohnehin nicht verfuegbar. */
++#    include <AvailabilityMacros.h>
++#    if defined(HAS_CONNECTX) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101100
++#      undef HAS_CONNECTX
++#    endif
+ #    if defined(LINUX) || HAS_CONNECTX
+   PRInt32 syserrno;
+   PRBool fNeedContinue = PR_FALSE;

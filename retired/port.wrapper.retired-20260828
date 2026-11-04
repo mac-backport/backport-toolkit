@@ -1,0 +1,69 @@
+#!/bin/bash
+# port — Wrapper um /opt/local/bin/port, der die globale clang Backport-Config
+# nach jedem install/upgrade/activate automatisch wiederherstellt — fuer ALLE
+# installierten MacPorts-clang/llvm-Toolchains (llvm-16, llvm-19, ...), da
+# MacPorts die Config bei clang/llvm-Upgrades ueberschreibt. Nutzung wie 'port':
+#   sudo /Users/imac/backport-toolkit/bin/port install codex
+# Immer nur gezielt benoetigte Ports bearbeiten; kein pauschales upgrade outdated.
+# Am besten ~/backport-toolkit/bin frueh in den PATH (auch fuer root/secure_path).
+REAL=/opt/local/bin/port
+
+# Base-cfg (Availability/libc++/TARGET_OS_OSX) — uniform, beide Rollen. Shim
+# kommt pro Port ueber PortGroup legacysupport/rust, NICHT global per cfg.
+read -r -d '' CXXCFG <<'CFG'
+-DTARGET_OS_OSX=1
+-faligned-allocation
+-L/opt/local/lib/libcxx
+-Wl,-rpath,/opt/local/lib/libcxx
+-Wno-unused-command-line-argument
+CFG
+
+read -r -d '' CCFG <<'CFG'
+-DTARGET_OS_OSX=1
+-L/opt/local/lib/libcxx
+-Wl,-rpath,/opt/local/lib/libcxx
+-Wno-unused-command-line-argument
+CFG
+
+# -D_LIBCPP_DISABLE_AVAILABILITY NUR fuer aelteres libc++ (clang < 19). Bei
+# clang>=19 (libc++ v19) ist es unnoetig UND schaedlich (erzwingt Referenz auf
+# 10.13+-Dylib-Symbole wie __libcpp_verbose_abort, die 10.9 nicht hat ->
+# Link-Fehler bei -fno-exceptions/LLVM). Details: apply-clang-backport-cfg.sh.
+AVAILLINE='-D_LIBCPP_DISABLE_AVAILABILITY'
+LIBCPP_MODERN_MAJOR=19
+
+# Nur moderne Toolchains anfassen (Major >= 16). Alte llvm (z.B. 3.7) verstehen
+# die modernen Flags nicht -> nie beschreiben.
+MIN_MAJOR=16
+ensure_cfg() {
+  local healed=0 warned=0
+  for CFGDIR in /opt/local/libexec/llvm-*/bin; do
+    [ -d "$CFGDIR" ] || continue
+    local maj=$(echo "$CFGDIR" | sed -E 's|.*/llvm-([0-9]+).*|\1|')
+    [ "$maj" -ge "$MIN_MAJOR" ] 2>/dev/null || continue
+    # Health-Marker: TARGET_OS_OSX ist in JEDER Base-cfg (unabh. vom Availability-Flag).
+    grep -q 'TARGET_OS_OSX' "$CFGDIR/clang++.cfg" 2>/dev/null && continue
+    if [ "$(id -u)" = 0 ]; then
+      if [ "$maj" -lt "$LIBCPP_MODERN_MAJOR" ] 2>/dev/null; then
+        printf '%s\n%s\n' "$AVAILLINE" "$CXXCFG" > "$CFGDIR/clang++.cfg"
+      else
+        printf '%s\n' "$CXXCFG" > "$CFGDIR/clang++.cfg"
+      fi
+      printf '%s\n' "$CCFG"   > "$CFGDIR/clang.cfg"
+      echo "[backport-port] Backport-Config wiederhergestellt: $CFGDIR"
+      healed=1
+    else
+      warned=1
+    fi
+  done
+  if [ "$warned" = 1 ]; then
+    echo "[backport-port] WARN: clang-cfg fehlt, ohne root nicht heilbar." >&2
+    echo "[backport-port]       -> sudo ~/backport-toolkit/bin/apply-clang-backport-cfg.sh" >&2
+  fi
+}
+
+"$REAL" "$@"; rc=$?
+case " $* " in
+  *" install "*|*" upgrade "*|*" activate "*|*" -u "*|*" selfupdate "*) ensure_cfg ;;
+esac
+exit $rc

@@ -1,0 +1,14 @@
+--- tools/v8_gypfiles/features.gypi.orig
++++ tools/v8_gypfiles/features.gypi
+@@ -62,7 +62,10 @@
+       }, {
+         'is_component_build': 0,
+       }],
+-      ['OS == "win" or OS == "mac"', {
++      # macOS 10.9 Backport: os_signpost (recorder-mac.cc) existiert erst ab 10.14.
++      # System-Instrumentation ist reines OS-Event-Tracing -> auf mac wie non-mac
++      # auf 0 setzen (kein <os/signpost.h>, keine Funktionseinbusse fuer JS).
++      ['OS == "win"', {
+         # Sets -DENABLE_SYSTEM_INSTRUMENTATION. Enables OS-dependent event tracing
+         'v8_enable_system_instrumentation': 1,
+       }, {

@@ -1,0 +1,126 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           golang 1.0
+# backport-toolkit overlay: golang includes legacysupport and exports its
+# link flags even with CGO_ENABLED=0. Keep those flags static as well.
+legacysupport.use_static yes
+
+go.setup            github.com/tailscale/tailscale 1.104.4 v
+go.package          tailscale.com
+go.offline_build    yes
+go.bin              ${prefix}/bin/go-1.27
+# backport-toolkit overlay: Go >= 1.27.3 with the Mavericks runtime, linker and
+# x509 patches; CGO stays disabled and the existing feature set is retained.
+revision            0
+
+homepage            https://tailscale.com
+
+description         The easiest, most secure way to use WireGuard and 2FA.
+
+long_description    {*}${description}. A secure network that just works. \
+                    Zero config VPN. Installs on any device in minutes, \
+                    manages firewall rules for you, and works from anywhere.
+
+categories          net
+supported_archs     x86_64
+installs_libs       no
+license             BSD
+maintainers         {gmail.com:herby.gillot @herbygillot} \
+                    openmaintainer
+
+# vendor tarball (`go-1.27 mod vendor`) = release asset of the backport-toolkit repo
+master_sites-append https://github.com/mac-backport/backport-toolkit/releases/download/distfiles/:vendor
+distfiles-append    tailscale-${version}-vendor.tar.gz:vendor
+
+checksums           tailscale-${version}.tar.gz \
+                    rmd160  6403d85b81975d229fa1d50c1a81f3e859315820 \
+                    sha256  862f12b3177d5e961f2a86cf82fb1ff3551786afcaf95f2dc9a8318889f98732 \
+                    size    5854559 \
+                    tailscale-${version}-vendor.tar.gz \
+                    rmd160  a4d8f668d6e924e3f8bd33cb2a57852d8d7d4882 \
+                    sha256  d3af1ec015c3b661026c00ee666d084e043ba09eda5f0364e51766663d22eb41 \
+                    size    109518323
+
+depends_build-delete port:go
+depends_build-append port:go-1.27 port:legacy-support
+
+build.env-append    CGO_ENABLED=0 \
+                    GOTOOLCHAIN=local \
+                    MACOSX_DEPLOYMENT_TARGET=10.9
+
+startupitem.create  yes
+startupitem.executable \
+                    ${prefix}/bin/${name}d
+
+build.pre_args-append \
+    -ldflags \" \
+        -extldflags=${prefix}/lib/libMacportsLegacySupport.a \
+        -X tailscale.com/version.longStamp=${version}    \
+        -X tailscale.com/version.shortStamp=${version}   \
+        -X tailscale.com/version.gitCommitStamp=non-git  \
+    \"
+
+build.args-append   -o _build ./cmd/${name} ./cmd/${name}d
+
+post-extract {
+    file mkdir ${worksrcpath}/_build
+}
+
+# backport-toolkit overlay: never download an unpatched Go toolchain and never
+# resolve LegacySupport from /usr/local. Keep all Mavericks support explicit.
+pre-build {
+    set compiler_version [string trim [exec ${go.bin} env GOVERSION]]
+    if {![regexp {^go([0-9.]+)$} ${compiler_version} -> compiler_version] ||
+        [vercmp ${compiler_version} 1.27.3] < 0} {
+        return -code error "Tailscale ${version} requires the Mavericks Go backport >= 1.27.3"
+    }
+}
+
+destroot {
+    xinstall -m 0755 \
+        {*}[glob ${worksrcpath}/_build/*] ${destroot}${prefix}/bin/
+
+    xinstall -d ${destroot}${prefix}/share/bash-completion/completions
+    system -W ${destroot} \
+        ".${prefix}/bin/${name} completion bash > \
+         .${prefix}/share/bash-completion/completions/${name}"
+
+    xinstall -d ${destroot}${prefix}/share/fish/vendor_completions.d
+    system -W ${destroot} \
+        ".${prefix}/bin/${name} completion fish > \
+         .${prefix}/share/fish/vendor_completions.d/${name}.fish"
+
+    xinstall -d ${destroot}${prefix}/share/zsh/site-functions
+    system -W ${destroot} \
+        ".${prefix}/bin/${name} completion zsh > \
+         .${prefix}/share/zsh/site-functions/_${name}"
+}
+
+post-destroot {
+    foreach program {tailscale tailscaled} {
+        set binary ${destroot}${prefix}/bin/${program}
+        set commands [exec /usr/bin/otool -l ${binary}]
+        if {![regexp {LC_VERSION_MIN_MACOSX\s+cmdsize\s+[0-9]+\s+version\s+10\.9(\s|$)} ${commands}]} {
+            return -code error "${program} is not stamped for macOS 10.9"
+        }
+        set libraries [exec /usr/bin/otool -L ${binary}]
+        if {[regexp {/usr/local/|@executable_path|libMacportsLegacySupport\.dylib} ${libraries}]} {
+            return -code error "${program} has an unexpected non-system runtime dependency"
+        }
+        if {${program} eq "tailscale"} {
+            set version_arg version
+        } else {
+            set version_arg --version
+        }
+        system "unset DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FORCE_FLAT_NAMESPACE; DYLD_BIND_AT_LAUNCH=1 ${binary} ${version_arg}"
+    }
+}
+
+notes "
+After launching the Tailscale service for the first time using the steps below (port load), run:
+
+    ${name} up
+"
+
+github.livecheck.regex {([0-9.]+)}

@@ -1,0 +1,20 @@
+--- lib/procfs.c.orig
++++ lib/procfs.c
+@@ -193,8 +193,15 @@
+ 	     tok = strtok_r(NULL, " ", &key)) {
+ 
+ 		i++;
+-		if (i == n)
+-			return ul_strtou64(tok, re, 10);
++		if (i == n) {
++			/* Darwin: uintmax_t (unsigned long) != uint64_t
++			 * (unsigned long long) -> clang>=16 Fehler */
++			uint64_t num;
++			int r = ul_strtou64(tok, &num, 10);
++			if (r == 0)
++				*re = num;
++			return r;
++		}
+ 
+ 		/* skip rest of the process name */
+ 		if (i == 2 && (p = strrchr(key, ')')))

@@ -1,0 +1,11 @@
+Custom Estuary side-menu icons
+
+Editable SVG sources; white artwork on a transparent 96-unit canvas.
+PNG output is 256 x 256 for crisp scaling; optical size matches native icons.
+Regenerate from this directory with:
+
+/opt/local/bin/rsvg-convert -o manage-library.png manage-library.svg
+/opt/local/bin/rsvg-convert -o youtube-pair.png youtube-pair.svg
+
+The Kodi Portfile installs *.png from this directory. SVG files stay as
+editable source in the local port overlay.

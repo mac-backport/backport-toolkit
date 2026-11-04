@@ -1,0 +1,125 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+
+name                macports-libcxx
+categories          lang
+platforms           darwin
+maintainers         nomaintainer
+license             NCSA
+homepage            https://libcxx.llvm.org
+
+description         provides a newer libc++ from llvm for older systems
+long_description    This port installs a recent libc++ from llvm \
+                    to use on older systems instead of the system libc++.
+
+# --- macOS 10.9 Backport-Overlay (~/backport-toolkit) --------------------------
+# Lokaler Override von lang/macports-libcxx. Upstream repackaged die libc++ aus
+# clang-11 -> Runtime-libc++ war Version 11. Unser Compiler ist aber clang-22 und
+# nutzt seine EINGEBAUTEN v22-libc++-Header (libexec/llvm-22/include/c++/v1); die
+# clang-backport-cfg linkt+rpatht per -L/opt/local/lib/libcxx auf DIESEN Port.
+# Solange der Port v11 lieferte, kompilierte alles gegen v22-Header, lief aber gegen
+# v11-Runtime -> C++-Module mit iostreams (canvas) fielen mit
+# "Symbol not found: __ZTTNSt3__119basic_istringstream..." aus.
+#
+# ROOT-FIX: diesen Port aus llvm-22 repackagen (clangversion 22) -> Compile-Header
+# und Runtime-libc++ stammen aus DERSELBEN Quelle (llvm-22) und matchen. libc++ ist
+# ABI-stabil (ABI v1): v22 behaelt alle v11-Symbole, also laufen v11-gebaute macports-
+# Binaries weiter, und v22-gebaute (node26, canvas) laufen endlich korrekt. Die
+# llvm-22-dylibs sind bereits LC_VERSION_MIN 10.9; einzige undef. libSystem-Abh.
+# ist _arc4random (auf 10.9 vorhanden). Details: memory nodejs26-port-mac-10-9,
+# clang-modern-toolchain-mac-10-9.
+#
+# rev1 (2026-11-02): repackaged aus clang-22 rev2 (LIBCXXABI_USE_LLVM_UNWINDER=OFF).
+# libc++/libc++abi nutzen damit den System-Unwinder wie alle Consumer-Binaries;
+# vorher Unwinder-Mix -> SIGSEGV bei Exceptions (Kodi). Guard in post-destroot
+# bricht ab, falls die Runtime wieder an libunwind.1 haengt. libunwind.1 wird
+# weiter installiert (unbenutzt, nur Kompatibilitaet).
+# ------------------------------------------------------------------------------
+
+# the llvm version whose already-built libc++/libc++abi/libunwind we repackage.
+version             22.1.8
+set clangversion    22
+revision            1
+
+# Die libc++/libc++abi/libunwind-Artefakte liegen im llvm-NN-libexec.
+depends_build       port:llvm-${clangversion}
+
+# these cannot match or base will add a depends.skip_archcheck on the needed clang
+# version and universal builds won't work (siehe Upstream-Kommentar/Trac #69189).
+if {[string match ${configure.compiler} "macports-clang-${clangversion}"]} {
+    configure.compiler  cc
+}
+
+master_sites
+distfiles
+fetch {}
+checksum {}
+use_configure no
+build {}
+variant universal {}
+
+destroot {
+    # llvm-22-Layout: Header unter include/c++/v1 (llvm-11: lib/c++/v1),
+    # dylibs unter lib/libc++/, libunwind unter lib/libunwind/.
+    set lc      ${prefix}/libexec/llvm-${clangversion}/lib/libc++
+    set lu      ${prefix}/libexec/llvm-${clangversion}/lib/libunwind
+    set inc     ${prefix}/libexec/llvm-${clangversion}/include/c++/v1
+    set L       ${destroot}${prefix}/lib/libcxx
+
+    # --- Header ---------------------------------------------------------------
+    # Hinweis: clang-22 selbst nutzt seine EINGEBAUTEN v22-Header, nicht diese
+    # Kopie. Wir installieren sie dennoch (Referenz / Fremd-Compiler, die
+    # -isystem /opt/local/include/libcxx/v1 setzen). Der alte
+    # availability-Patch entfaellt: v22 hat das Makro _LIBCPP_DISABLE_AVAILABILITY
+    # umbenannt (jetzt __configuration/availability.h), und unsere Consumer
+    # (node26/rust/canvas) kompilieren mit den v22-Headern availability-clean.
+    xinstall -d ${destroot}${prefix}/include/libcxx
+    copy ${inc} ${destroot}${prefix}/include/libcxx/v1
+
+    xinstall -d ${L}
+
+    # --- libc++ ---------------------------------------------------------------
+    copy ${lc}/libc++.1.0.dylib ${L}/libc++.1.0.dylib
+    system -W ${L} "install_name_tool -id ${prefix}/lib/libcxx/libc++.1.0.dylib libc++.1.0.dylib"
+    system -W ${L} "install_name_tool -change @rpath/libc++abi.1.dylib ${prefix}/lib/libcxx/libc++abi.1.dylib libc++.1.0.dylib"
+    system -W ${L} "install_name_tool -change @rpath/libunwind.1.dylib ${prefix}/lib/libcxx/libunwind.1.dylib libc++.1.0.dylib"
+    system -W ${L} "ln -s libc++.1.0.dylib libc++.1.dylib"
+    system -W ${L} "ln -s libc++.1.dylib libc++.dylib"
+
+    # --- libc++abi ------------------------------------------------------------
+    copy ${lc}/libc++abi.1.0.dylib ${L}/libc++abi.1.0.dylib
+    system -W ${L} "install_name_tool -id ${prefix}/lib/libcxx/libc++abi.1.0.dylib libc++abi.1.0.dylib"
+    system -W ${L} "install_name_tool -change @rpath/libunwind.1.dylib ${prefix}/lib/libcxx/libunwind.1.dylib libc++abi.1.0.dylib"
+    system -W ${L} "ln -s libc++abi.1.0.dylib libc++abi.1.dylib"
+    system -W ${L} "ln -s libc++abi.1.dylib libc++abi.dylib"
+
+    # --- libunwind (neu ggü. v11: v22-libc++ verlangt @rpath/libunwind) -------
+    copy ${lu}/libunwind.1.0.dylib ${L}/libunwind.1.0.dylib
+    system -W ${L} "install_name_tool -id ${prefix}/lib/libcxx/libunwind.1.0.dylib libunwind.1.0.dylib"
+    system -W ${L} "ln -s libunwind.1.0.dylib libunwind.1.dylib"
+    system -W ${L} "ln -s libunwind.1.dylib libunwind.dylib"
+
+    # --- static libs ----------------------------------------------------------
+    copy ${lc}/libc++.a             ${L}/libc++.a
+    copy ${lc}/libc++abi.a          ${L}/libc++abi.a
+    copy ${lc}/libc++experimental.a ${L}/libc++experimental.a
+    copy ${lu}/libunwind.a          ${L}/libunwind.a
+}
+
+# Guard: Runtime darf nicht am LLVM-libunwind haengen (Unwinder-Mix, s.o. rev1).
+post-destroot {
+    set L ${destroot}${prefix}/lib/libcxx
+    foreach lib {libc++.1.0.dylib libc++abi.1.0.dylib} {
+        if {![catch {exec /usr/bin/otool -L ${L}/${lib} | grep -q libunwind}]} {
+            return -code error "${lib} linkt noch libunwind.1 -> clang-22 ohne LIBCXXABI_USE_LLVM_UNWINDER=OFF gebaut?"
+        }
+    }
+}
+
+notes "
+To enable a newer libc++, use a recent compiler and the legacysupport 1.1 PortGroup:
+
+legacysupport.use_mp_libcxx yes
+
+"

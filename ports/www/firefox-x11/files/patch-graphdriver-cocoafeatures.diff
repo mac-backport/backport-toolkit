@@ -1,0 +1,14 @@
+--- dom/media/GraphDriver.cpp.orig
++++ dom/media/GraphDriver.cpp
+@@ -25,8 +25,9 @@
+ 
+ #ifdef XP_MACOSX
+ #  include <sys/sysctl.h>
+-
+-#  include "nsCocoaFeatures.h"
++#  ifdef MOZ_WIDGET_COCOA
++#    include "nsCocoaFeatures.h"
++#  endif
+ #endif
+ 
+ extern mozilla::LazyLogModule gMediaTrackGraphLog;

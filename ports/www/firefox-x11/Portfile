@@ -1,0 +1,343 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; -*-
+# firefox-x11: Firefox ESR als GTK3/X11-Build (XQuartz) auf macOS 10.9.
+# Umgeht die Cocoa-min-OS-Sperre, indem das GTK-Toolkit auf Darwin freigeschaltet
+# wird (patch-allow-gtk-on-darwin.diff). Plattform bleibt Darwin/Mach-O, nur das
+# Widget-Toolkit ist cairo-gtk3-x11-only.
+#
+# Toolchain (2026-08-29, neu aufgesetzt nach Toolchain-Modernisierung):
+#   * clang-22 (configure.compiler) mit einkompilierter clang-backport-cfg
+#     (-DTARGET_OS_OSX, -faligned-allocation, libc++ v22, lld/libclang/compiler-rt).
+#   * Natives rust/cargo + MLS-Rust-Link via PortGroup embedded-cargo-legacy.
+#   * MacportsLegacySupport (10.9-Symbole inkl. CCRandomGenerateBytes, CLOCK_*).
+#   * node26 (/opt/local/bin/node) als NODEJS.
+# WICHTIG: Firefox baut ueber ./mach (nicht Standard-macports-configure) -> die von
+# den PortGroups gesetzten configure.*-Flags erreichen mach NICHT automatisch; die
+# 10.9-Verdrahtung (MLS-Include/-Link, Rust-Link-Shim) wird daher EXPLIZIT in der
+# .mozconfig gesetzt. Die PortGroups liefern Deps + Env (CARGO/RUSTC/CARGO_HOME/
+# RUSTFLAGS), das mach ueber die Umgebung erbt.
+#
+# STATUS: Fail-fast-Probe / iterativer Backport. Noch KEIN fertiges Paket.
+PortSystem          1.0
+PortGroup           active_variants 1.1
+PortGroup           legacysupport 1.1
+# Native Rust-Toolchain-Verdrahtung fuer Firefox' eingebetteten Crates-Build:
+PortGroup           embedded-cargo-legacy 1.0
+
+name                firefox-x11
+# Neueste ESR-Linie (Mozilla FIREFOX_ESR_NEXT). 140 war die alte Linie.
+version             153.1.0
+set esr             esr
+# rev1 (2026-08-31): Full-Rebuild fuer --enable-official-branding (war rev0 noch
+# ohne Branding gebaut = "Nightly"). Neue Revision -> sauberer Image-Ersatz von _0.
+revision            1
+categories          www
+platforms           darwin
+supported_archs     x86_64
+license             MPL-2
+maintainers         nomaintainer
+description         Firefox ESR ${version} als GTK3/X11-Build fuer XQuartz auf 10.9
+long_description    Firefox ${version}${esr} mit dem GTK3/X11-Widget-Toolkit statt \
+                    Cocoa gebaut, damit ein moderner Browser auf macOS 10.9 laeuft \
+                    und per ssh -X forwardbar ist. Toolchain: clang-22 + natives rust.
+
+homepage            https://www.mozilla.org/firefox/
+master_sites        https://ftp.mozilla.org/pub/firefox/releases/${version}${esr}/source/
+distname            firefox-${version}${esr}.source
+use_xz              yes
+worksrcdir          firefox-${version}
+
+# sha256 gegen Mozilla SHA256SUMS (153.1.0esr) verifiziert.
+checksums           rmd160  65d23e084ceb7518a5ceed6d15f23d037a72e5dc \
+                    sha256  77adcb2664dda25ca1f01f5a795ae695ed0a0a1464a268c4f13159956407c7ad \
+                    size    801285696
+
+# clang-22 kommt via configure.compiler; MacPorts setzt configure.cc/cxx ->
+# clang-mp-22 (liest die einkompilierte clang-backport-cfg selbst).
+configure.compiler  macports-clang-22
+
+# 10.9-Rust-Link-Shim AUCH in der configure-Phase: mach baut hier via `pip install`
+# Rust-basierte Build-Tools (maturin) aus Quelle, deren cargo sonst OHNE MLS linkt ->
+# undefined _openat/_unlinkat/_fdopendir$INODE64 (rust std remove_dir_all). Die
+# PortGroup embedded-cargo-legacy setzt RUSTFLAGS nur in build.env; hier fuer configure
+# nachziehen, damit JEDER cargo-Build (pip/maturin inkl.) das statische MLS anhaengt.
+# Kein -C linker (Firefox' cargo-linker-Wrapper nicht ueberschreiben); MLS EXPORTIERT
+# openat/unlinkat/fdopendir/CCRandomGenerateBytes. Host==Target (kein --target) -> greift
+# auf Host-build-scripts + proc-macros. Vgl. memory embedded-rust-on-10-9-technique.
+configure.env-append \
+    "RUSTFLAGS=-C link-arg=${prefix}/lib/libMacportsLegacySupport.a"
+
+# --- Runtime: GTK3/X11 aus MacPorts (+x11-Variante zwingend) ---
+depends_lib         port:gtk3 \
+                    port:dbus \
+                    port:fontconfig \
+                    port:freetype \
+                    port:libffi
+require_active_variants gtk3 x11 ""
+
+# --- Build-Tooling ---
+# rust/cargo kommen aus PortGroup embedded-cargo-legacy. cbindgen liegt in
+# ${prefix}/bin (via CBINDGEN). node26 als NODEJS. python3.12 fuer mach.
+depends_build       port:nasm \
+                    port:yasm \
+                    port:python312 \
+                    path:bin/pkg-config:pkgconfig \
+                    path:bin/cbindgen:cbindgen \
+                    path:bin/node:nodejs26
+
+# Synthetisches macOS-SDK: Bundle-Struktur, die configure akzeptiert, aber auf
+# die echten 10.9-System-Header/Frameworks zeigt (Symlinks).
+set fakesdk         ${workpath}/MacOSX10.9.sdk
+
+# Alle ~98 in-tree Source-Deltas (die ~65 Waende + die einzelnen patch-*.diff,
+# die dieser Complete-Delta SUBSUMIERT) in EINEM git-style Patch. Die 08-31-
+# Session-Fixes (ContentProcess GRE-dir, SharedMemory POSIX) sind NICHT drin und
+# werden in post-patch nachgezogen (apply-session-0831.py). git a/b -> -p1.
+patch.pre_args-append   -p1
+# SkTArray.h (skia) fehlt im Complete-Delta (nicht in dessen edited-file-Liste) ->
+# separat nachziehen: std::min<size_t> statt std::min (10.9: SIZE_MAX=ull vs
+# size_t=ul -> no matching min). In a/b-Form konvertiert (gleiches -p1 wie Delta).
+patchfiles          _COMPLETE-worktree-delta-20260830.diff \
+                    patch-skia-sktarray-min-sizet-p1.diff
+
+# .mozconfig erzeugen (steuert configure/build vollstaendig)
+post-patch {
+    set mls_inc     ${prefix}/include/LegacySupport
+    set mls_a       ${prefix}/lib/libMacportsLegacySupport.a
+
+    # --- Neue Source-Dateien (vom Delta via moz.build referenziert, aber selbst
+    #     keine Patches) in den Baum kopieren ---
+    xinstall -m 0644 ${filespath}/CocoaFileUtilsStub.cpp \
+        ${worksrcpath}/xpcom/io/CocoaFileUtilsStub.cpp
+    xinstall -m 0644 ${filespath}/MacOS109MissingAppleSymbols.c \
+        ${worksrcpath}/security/manager/ssl/MacOS109MissingAppleSymbols.c
+
+    # --- 08-31-Session-Fixes (nicht im 08-30-Delta): GRE-dir-Gate + POSIX-SHM ---
+    system "${prefix}/bin/python3.12 ${filespath}/apply-session-0831.py ${worksrcpath}"
+
+    # --- Wall #21 font.rs (nicht im Delta): webrender-Font-Gates auf moz_wr_fontconfig
+    #     flippen -> unix/Fontconfig-Variante (paart mit -DMOZ_WR_FONTCONFIG + RUSTFLAGS
+    #     --cfg moz_wr_fontconfig + cbindgen [defines] aus dem Delta). ---
+    system "${prefix}/bin/python3.12 ${filespath}/patch-font-rs-fontconfig.py ${worksrcpath}"
+    # ... und die WebRender-Glyph-Rasterizer-Plattformwahl konsistent auf den
+    # unix/Fontconfig-Backend statt macOS/CoreText (sonst nutzt platform/macos/font.rs
+    # das Mac-NativeFontHandle, das wir nach unix geflippt haben).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-wr-glyph-rasterizer-fontconfig.py ${worksrcpath}"
+    # ... und dessen Cargo.toml: freetype/libc-Deps auch auf Darwin verfuegbar machen
+    # (cargo target-cfg sieht kein --cfg -> Sektion auf alle unix verbreitern).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-wr-glyph-cargo-fontconfig.py ${worksrcpath}"
+    # ... und webrender/resource_cache.rs (FontTemplate::Native macOS-Arm liest
+    # native.name -> unter fontconfig den unix-Arm native.path nehmen).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-resource-cache-fontconfig.py ${worksrcpath}"
+    # ... und Firefox' WR-Binding-Layer (CGFont/NativeFontHandle.name): die
+    # multi-target macos/ios-Font-Gates auf moz_wr_fontconfig flippen (NICHT die
+    # single target_os=macos-Gates wie den Cocoa-autoreleasepool).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-fontconfig-cfg-flip.py ${worksrcpath} \
+        gfx/webrender_bindings/src/bindings.rs \
+        gfx/webrender_bindings/src/lib.rs \
+        gfx/webrender_bindings/src/moz2d_renderer.rs"
+
+    # CompositorBridgeParent: macOS-Move-Semantik-Override von
+    # RecvPCompositorWidgetConstructor auf MOZ_WIDGET_COCOA gaten (GTK-IPDL erzeugt
+    # const& -> Signatur-Mismatch). XP_MACOSX-vs-COCOA-Grundmuster.
+    system "${prefix}/bin/python3.12 ${filespath}/patch-compositorbridge-cocoa.py ${worksrcpath}"
+    # IOSurfacePort.{h,cpp} + PNativeLayerRemote.ipdl (macOS NativeLayer/IOSurface-
+    # Compositing) auf cocoa gaten -> GTK zieht kein <IOSurface/IOSurfaceRef.h> (10.9-absent).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-iosurfaceport-cocoa.py ${worksrcpath}"
+    # NativeLayerRemote-Cluster (CommandQueue/Child/Parent) auf cocoa gaten
+    system "${prefix}/bin/python3.12 ${filespath}/patch-nativelayerremote-cocoa.py ${worksrcpath}"
+    # TextureClient.cpp: MacIOSurface-TextureData-Pfad (Include/TextureType/Create)
+    # von XP_MACOSX auf MOZ_WIDGET_COCOA gaten -> sonst undefined symbol beim
+    # libxul-Link (MacIOSurfaceTextureData nur im cocoa-Build definiert).
+    system "${prefix}/bin/python3.12 ${filespath}/patch-cpp-cocoa-gate.py ${worksrcpath} gfx/layers/client/TextureClient.cpp 3 js/xpconnect/shell/xpcshell.cpp 3"
+
+    # --- os/availability.h-Shim (10.10+-Header, auf 10.9 abwesend; von gfx/angle
+    #     gezogen). In privates Include-Dir, via -isystem VOR das 10.9-SDK. ---
+    file mkdir ${workpath}/sdkshims/os
+    xinstall -m 0644 ${filespath}/os_availability_shim.h \
+        ${workpath}/sdkshims/os/availability.h
+
+    set mc [open ${worksrcpath}/.mozconfig w]
+    puts $mc "mk_add_options MOZ_OBJDIR=${worksrcpath}/obj-x11"
+    puts $mc "ac_add_options --enable-application=browser"
+    # Offizielles Firefox-Branding statt "unofficial" (= "Nightly"): setzt
+    # MOZ_APP_DISPLAYNAME=Firefox, das echte Firefox-Logo und die brand.ftl/
+    # brand.properties auf "Firefox". Zieht browser/branding/official. HINWEIS:
+    # Marken-Policy (Name+Logo auf selbst-gepatchtem Build) — bewusst, private
+    # Kiste. Wirkt erst nach Reconfigure+Full-Rebuild (steht noch aus).
+    puts $mc "ac_add_options --enable-official-branding"
+    puts $mc "ac_add_options --enable-default-toolkit=cairo-gtk3-x11-only"
+    puts $mc "ac_add_options --with-macos-sdk=${fakesdk}"
+    puts $mc "ac_add_options --disable-sandbox"
+    puts $mc "ac_add_options --disable-updater"
+    puts $mc "ac_add_options --disable-crashreporter"
+    puts $mc "ac_add_options --disable-tests"
+    puts $mc "ac_add_options --disable-debug"
+    puts $mc "ac_add_options --enable-optimize"
+    puts $mc "ac_add_options --disable-jemalloc"
+    puts $mc "ac_add_options --without-wasm-sandboxed-libraries"
+    puts $mc "ac_add_options --enable-bootstrap=no"
+    # WebRTC AUS (erster 10.9-Build): libwebrtc' Apple-Kamera-Obj-C-SDK
+    # (sdk/objc, videocapture_objc) verlangt 10.15-AVFoundation (AVCaptureDeviceType,
+    # Obj-C-Generics) -> auf 10.9 unbaubar, wird ueber OS_TARGET==Darwin statt cocoa
+    # hereingezogen. Fuers Erste ganz abschalten; spaeter ggf. objc-SDK cocoa-gaten
+    # und reaktivieren. Kostet Video-Anrufe/Screen-Sharing, sonst nichts.
+    puts $mc "ac_add_options --disable-webrtc"
+    # Compiler: clang-22 (liest clang-backport-cfg selbst: TARGET_OS_OSX, libc++ v22).
+    puts $mc "export CC=${configure.cc}"
+    puts $mc "export CXX=${configure.cxx}"
+    puts $mc "export HOST_CC=${configure.cc}"
+    puts $mc "export HOST_CXX=${configure.cxx}"
+    puts $mc "export MACOSX_DEPLOYMENT_TARGET=10.9"
+    # --- 10.9-Verdrahtung, die mach sonst nicht bekommt ---
+    # Kat-A: MLS-Header (CLOCK_MONOTONIC/UPTIME_RAW etc.) in C/C++-Compile ziehen.
+    # Darwin-Makro-Wand: <AssertMacros.h> definiert die Makros check/verify/require
+    # (ohne Unterstrich), die mit C++-Identifiern kollidieren (z.B. fmt `check`,
+    # via mfbt/DbgMacro.h ueberall). __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES=0
+    # schaltet nur diese un-unterstrichenen Makros ab (kanonischer macOS-Port-Fix).
+    # -DMOZ_WR_FONTCONFIG: WebRender-Font-Binding (Wall #21). Auf Darwin waehlt
+    # webrender' font.rs sonst die Mac-Variante (font_smoothing), aber unser
+    # Fontconfig-Backend (gfx/2d/ScaledFontFontconfig.cpp) + die cbindgen-generierte
+    # webrender_ffi_generated.h brauchen die unix-Variante (hinting/lcd_filter).
+    # Der cbindgen [defines]-Mapping (im Delta) emittiert #ifdef MOZ_WR_FONTCONFIG;
+    # dieses -D waehlt konsistent den unix-Zweig im C++. Paart mit RUSTFLAGS
+    # --cfg moz_wr_fontconfig (Rust-Seite, ABI-konsistent). Siehe memory.
+    set mls_cf "-isystem ${mls_inc} -isystem ${workpath}/sdkshims -DMOZ_WR_FONTCONFIG -D__ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES=0"
+    puts $mc "export CFLAGS=\"${mls_cf}\""
+    puts $mc "export CXXFLAGS=\"${mls_cf}\""
+    puts $mc "export HOST_CFLAGS=\"${mls_cf}\""
+    puts $mc "export HOST_CXXFLAGS=\"${mls_cf}\""
+    # Kat-B (C/C++-Link): MLS als Lib fuer libxul & Konsorten.
+    # + Absoluter rpath auf das Install-Verzeichnis: dyld auf 10.9.5 (13F1911)
+    #   loest @executable_path/@loader_path in LC_RPATH NICHT auf (mit trivialem
+    #   Test bewiesen) -> nur ABSOLUTER rpath findet libxul&Co ohne DYLD_LIBRARY_PATH
+    #   (= nativ, kein DYLD-Wrapper, Doktrin-konform). headerpad fuer destroot-
+    #   install_name_tool-Nachzug. Siehe memory firefox-x11-backport (Meilenstein 08-31).
+    puts $mc "export LDFLAGS=\"-L${prefix}/lib -lMacportsLegacySupport -Wl,-headerpad_max_install_names -Wl,-rpath,${prefix}/lib/firefox\""
+    # Kat-B (Rust-Link): Firefox' cargo linkt proc-macros/build-scripts ohne Shim ->
+    # CCRandomGenerateBytes/_openat... undefined. Statisches MLS als Rust-Link-Arg
+    # anhaengen (loest sich, MLS EXPORTIERT die Symbole). Kein -C linker, damit
+    # Firefox' eigener cargo-linker-Wrapper nicht ueberschrieben wird.
+    # --cfg moz_wr_fontconfig: Rust-Seite von Wall #21 (font.rs waehlt die unix-
+    # FontInstancePlatformOptions/FontHinting/FontLCDFilter statt der Mac-Variante),
+    # ABI-konsistent mit -DMOZ_WR_FONTCONFIG (C++) + cbindgen-Header.
+    puts $mc "export RUSTFLAGS=\"-C link-arg=${mls_a} --cfg moz_wr_fontconfig\""
+    puts $mc "export CBINDGEN=${prefix}/bin/cbindgen"
+    puts $mc "export RUSTC=${prefix}/bin/rustc"
+    puts $mc "export CARGO=${prefix}/bin/cargo"
+    puts $mc "export NASM=${prefix}/bin/nasm"
+    puts $mc "export PKG_CONFIG=${prefix}/bin/pkg-config"
+    puts $mc "export NODEJS=${prefix}/bin/node"
+    puts $mc "export PYTHON3=${prefix}/bin/python3.12"
+    # bindgen/libclang liest die clang-cfg NICHT -> MLS-Header + TARGET_OS_OSX
+    # explizit nachreichen.
+    puts $mc "export BINDGEN_EXTRA_CLANG_ARGS=\"-isystem ${mls_inc} -DTARGET_OS_OSX=1\""
+    puts $mc "export MOZ_NOSPAM=1"
+    close $mc
+}
+
+# Synthetisches SDK anlegen: Struktur, die configure als gueltiges Apple-SDK
+# akzeptiert, aber via Symlinks auf die echten 10.9-System-Header/Frameworks zeigt.
+pre-configure {
+    file delete -force ${fakesdk}
+    xinstall -d ${fakesdk}
+    ln -s /usr    ${fakesdk}/usr
+    ln -s /System ${fakesdk}/System
+    ln -s /Library ${fakesdk}/Library
+    set pl [open ${fakesdk}/SDKSettings.plist w]
+    puts $pl {<?xml version="1.0" encoding="UTF-8"?>}
+    puts $pl {<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">}
+    puts $pl {<plist version="1.0"><dict>}
+    puts $pl {<key>CanonicalName</key><string>macosx10.9</string>}
+    puts $pl {<key>DisplayName</key><string>macOS 10.9 (firefox-x11 synthetic)</string>}
+    puts $pl {<key>Version</key><string>10.9</string>}
+    puts $pl {</dict></plist>}
+    close $pl
+}
+
+# Configure + Build ueber ./mach (mozconfig steuert alles)
+use_configure       yes
+configure.cmd       ${worksrcpath}/mach
+configure.pre_args  ""
+configure.args      configure
+configure.env-append \
+                    MOZCONFIG=${worksrcpath}/.mozconfig \
+                    PATH=${prefix}/bin:$env(PATH)
+
+build.cmd           ${worksrcpath}/mach
+build.target        build
+build.env-append    MOZCONFIG=${worksrcpath}/.mozconfig \
+                    PATH=${prefix}/bin:$env(PATH)
+
+# Firefox' `mach install` honoriert KEIN DESTDIR -> stagt nichts. Wie Linux-Distros
+# den Baum manuell installieren: dist/bin -> ${prefix}/lib/firefox, plus ein
+# bin/firefox-Trampolin (Firefox leitet seinen GRE/libxul-Dir aus dem Invocation-
+# Pfad ab und loest Symlinks NICHT auf -> via Symlink `Couldn't load XPCOM`).
+set ffdir           ${prefix}/lib/firefox
+
+# System-Browser-Shim bauen: interposed NSWorkspace openURL(s) -> `firefox --new-tab`
+# auf dem aktuellen $DISPLAY (nur http/https, nur wenn DISPLAY gesetzt) -> Konsolen-
+# Apps (codex etc.) in ssh-X-Sessions oeffnen Seiten auf dem Client statt via
+# LaunchServices auf dem physischen Screen (dort laeuft Kodi). KEIN -fobjc-arc
+# (clang-22 ohne libarclite); der Shim nutzt manuelles objc_msgSend/MRC.
+post-build {
+    system "${configure.cc} -dynamiclib -mmacosx-version-min=10.9 \
+        -framework Foundation -framework AppKit \
+        -o ${worksrcpath}/nsworkspace_browser_shim.dylib \
+        ${filespath}/nsworkspace_browser_shim.m"
+}
+
+destroot {
+    set src ${worksrcpath}/obj-x11/dist/bin
+    xinstall -d ${destroot}${ffdir}
+    # -L = Symlinks DEREFERENZIEREN: Firefox' dist/bin ist ein Symlink-Feld in den
+    # work-tree (Ressourcen, actors/*.mjs, dependentlibs.list, omni-Teile). Ohne -L
+    # kopiert cp die Symlinks; nach dem work-clean baumeln alle 7000+ -> "Couldn't
+    # load XPCOM". -L macht den Install self-contained (echte Dateien).
+    system "cp -RL ${src}/ ${destroot}${ffdir}/"
+
+    # Absoluten rpath sicherstellen: den (auf diesem dyld nutzlosen) @executable_path-
+    # Eintrag durch das Install-Verzeichnis ersetzen. In-place-REPLACE geht ohne
+    # headerpad; auf einem sauberen Build ist ${ffdir} zusaetzlich schon via LDFLAGS
+    # baked (Duplikat ist harmlos). catch: tolerant falls @executable_path fehlt.
+    foreach b {firefox firefox-bin} {
+        catch {system "install_name_tool -rpath @executable_path ${ffdir} ${destroot}${ffdir}/${b}"}
+    }
+
+    # bin/firefox-Trampolin (setzt NICHTS: nativ via absolutem rpath, Prefs baked).
+    xinstall -d ${destroot}${prefix}/bin
+    set tramp ${destroot}${prefix}/bin/firefox
+    set fh [open ${tramp} w 0755]
+    puts $fh "#!/bin/sh"
+    puts $fh "exec ${ffdir}/firefox \"\$@\""
+    close $fh
+
+    # xdg-open-Trampolin -> firefox (xdg-basierte CLI-Tools).
+    set xo ${destroot}${prefix}/bin/xdg-open
+    set fh2 [open ${xo} w 0755]
+    puts $fh2 "#!/bin/sh"
+    puts $fh2 "exec ${prefix}/bin/firefox \"\$@\""
+    close $fh2
+
+    # Default-Prefs (jeder User/Profil, kein Seeding): neben Firefox' eigenem
+    # firefox.js = korrekte Load-Location. Remote-X-Tuning (frame_rate=30, kein
+    # smoothScroll/Animationen, webgl aus, autoplay block, fission aus, ...).
+    xinstall -m 0644 ${filespath}/firefox-x11-remote.js \
+        ${destroot}${ffdir}/browser/defaults/preferences/
+
+    # System-Browser-Shim.
+    xinstall -m 0755 ${worksrcpath}/nsworkspace_browser_shim.dylib ${destroot}${ffdir}/
+
+    # Desktop-Eintrag fuer GTK-URL-Handler (mousepad & Co. "Link oeffnen").
+    # Exec zeigt fest auf das ${prefix}/bin/firefox-Trampolin (= Install, GPU-
+    # Prozess aus), NICHT auf die wegwerfbare Build-Tree-Binary. Zusammen mit
+    # pref browser.shell.checkDefaultBrowser=false verhindert das, dass Firefox
+    # ~/.config/mimeapps.list bei jedem Start umschreibt und ein
+    # userapp-Nightly-*.desktop auf den Build-Tree (GPU an -> BadDrawable-Abort
+    # beim Schliessen) legt. Per-User-Default via `xdg mime`/gio bleibt
+    # User-State (nicht Port-Territorium).
+    xinstall -d ${destroot}${prefix}/share/applications
+    xinstall -m 0644 ${filespath}/firefox-x11.desktop \
+        ${destroot}${prefix}/share/applications/
+}
+
+livecheck.type      none

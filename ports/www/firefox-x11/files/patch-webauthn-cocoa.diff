@@ -1,0 +1,31 @@
+--- dom/webauthn/moz.build.orig
++++ dom/webauthn/moz.build
+@@ -73,7 +73,7 @@
+         "AndroidWebAuthnService.cpp",
+     ]
+ 
+-if CONFIG["TARGET_OS"] == "OSX":
++if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
+     UNIFIED_SOURCES += [
+         "MacOSWebAuthnService.mm",
+     ]
+--- dom/webauthn/WebAuthnService.h.orig
++++ dom/webauthn/WebAuthnService.h
+@@ -15,7 +15,7 @@
+ #  include "AndroidWebAuthnService.h"
+ #endif
+ 
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ #  include "MacOSWebAuthnService.h"
+ #endif
+ 
+@@ -42,7 +42,7 @@
+     }
+ #elif defined(MOZ_WIDGET_ANDROID)
+     mPlatformService = new AndroidWebAuthnService();
+-#elif defined(XP_MACOSX)
++#elif defined(MOZ_WIDGET_COCOA)
+     if (__builtin_available(macos 13.3, *)) {
+       mPlatformService = NewMacOSWebAuthnServiceIfAvailable();
+     }

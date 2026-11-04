@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<includes>
+  <include name="YouTubeChannelCard">
+    <param name="focused">false</param>
+    <definition>
+      <control type="image"><left>5</left><top>5</top><width>430</width><height>340</height><texture colordiffuse="button_focus">colors/grey.png</texture><visible>$PARAM[focused]</visible></control>
+      <control type="image"><left>10</left><top>10</top><width>420</width><height>330</height><texture>dialogs/dialog-bg-nobo.png</texture></control>
+      <control type="image"><left>10</left><top>10</top><width>420</width><height>236</height><texture background="true" fallback="DefaultVideo.png">$INFO[ListItem.Art(thumb)]</texture><aspectratio>scale</aspectratio></control>
+      <control type="label"><left>275</left><top>208</top><width>140</width><height>32</height><align>right</align><font>font12</font><shadowcolor>black</shadowcolor><label>$INFO[ListItem.Duration]</label><visible>!ListItem.IsFolder</visible></control>
+      <control type="textbox"><left>25</left><top>251</top><width>390</width><height>78</height><font>font13</font><label>$INFO[ListItem.Label]</label></control>
+    </definition>
+  </include>
+  <include name="View_599_YouTubeChannel">
+    <control type="group">
+      <visible>Control.IsVisible(599)</visible>
+      <control type="image"><left>50</left><top>95</top><right>50</right><height>215</height><texture background="true" colordiffuse="70FFFFFF">$INFO[Container.Property(youtube.channel.banner)]</texture><aspectratio>scale</aspectratio></control>
+      <control type="image"><left>50</left><top>95</top><right>50</right><height>215</height><texture colordiffuse="B0000000">colors/grey.png</texture></control>
+      <control type="image"><left>80</left><top>145</top><width>120</width><height>120</height><texture background="true" fallback="icons/sidemenu/youtube.png">$INFO[Container.Property(youtube.channel.avatar)]</texture><aspectratio>keep</aspectratio></control>
+      <control type="label"><left>230</left><top>120</top><right>90</right><height>70</height><font>font37</font><label>$INFO[Container.Property(youtube.channel.name)]</label><scroll>true</scroll></control>
+      <control type="textbox"><left>230</left><top>195</top><right>90</right><height>60</height><font>font12</font><label>$INFO[Container.Property(youtube.channel.description)]</label></control>
+      <control type="label"><left>230</left><top>265</top><right>90</right><height>30</height><font>font12</font><textcolor>silver</textcolor><label>$INFO[Container.Property(youtube.channel.stats)]</label></control>
+      <control type="button" id="601"><left>60</left><top>330</top><width>200</width><height>55</height><label>Videos</label><align>center</align><onclick>Container.Update($INFO[Container.Property(youtube.channel.videos)])</onclick><onleft>9000</onleft><onright>602</onright><onup>601</onup><ondown>599</ondown></control>
+      <control type="button" id="602"><left>270</left><top>330</top><width>210</width><height>55</height><label>Playlists</label><align>center</align><onclick>Container.Update($INFO[Container.Property(youtube.channel.playlists)])</onclick><onleft>601</onleft><onright>603</onright><onup>602</onup><ondown>599</ondown></control>
+      <control type="button" id="603"><left>490</left><top>330</top><width>180</width><height>55</height><label>Shorts</label><align>center</align><onclick>Container.Update($INFO[Container.Property(youtube.channel.shorts)])</onclick><onleft>602</onleft><onright>604</onright><onup>603</onup><ondown>599</ondown></control>
+      <control type="button" id="604"><left>1030</left><top>330</top><width>300</width><height>55</height><label>$INFO[Container.Property(youtube.channel.subscription_label)]</label><align>center</align><onclick>RunPlugin($INFO[Container.Property(youtube.channel.subscribe)])</onclick><onleft>603</onleft><onright>605</onright><onup>604</onup><ondown>599</ondown></control>
+      <control type="button" id="605"><left>1340</left><top>330</top><width>250</width><height>55</height><label>Kanal merken</label><align>center</align><onclick>RunPlugin($INFO[Container.Property(youtube.channel.save)])</onclick><onleft>604</onleft><onright>605</onright><onup>605</onup><ondown>599</ondown></control>
+      <control type="image"><left>60</left><top>389</top><width>200</width><height>4</height><texture colordiffuse="button_focus">colors/grey.png</texture><visible>String.IsEqual(Container.Property(youtube.channel.tab),videos)</visible></control>
+      <control type="image"><left>270</left><top>389</top><width>210</width><height>4</height><texture colordiffuse="button_focus">colors/grey.png</texture><visible>String.IsEqual(Container.Property(youtube.channel.tab),playlists)</visible></control>
+      <control type="image"><left>490</left><top>389</top><width>180</width><height>4</height><texture colordiffuse="button_focus">colors/grey.png</texture><visible>String.IsEqual(Container.Property(youtube.channel.tab),shorts)</visible></control>
+      <control type="panel" id="599">
+        <left>60</left><top>410</top><right>60</right><bottom>85</bottom>
+        <visible>String.IsEqual(Container.Property(youtube.channel),true)</visible>
+        <viewtype label="YouTube-Kanal">icon</viewtype>
+        <orientation>vertical</orientation><preloaditems>4</preloaditems>
+        <scrolltime tween="cubic" easing="out">250</scrolltime>
+        <onup>601</onup><onleft>9000</onleft><onright>599</onright><ondown>599</ondown>
+        <itemlayout width="440" height="350"><include content="YouTubeChannelCard"><param name="focused" value="false"/></include></itemlayout>
+        <focusedlayout width="440" height="350"><include content="YouTubeChannelCard"><param name="focused" value="true"/></include></focusedlayout>
+      </control>
+      <control type="label"><left>70</left><top>450</top><right>70</right><height>80</height><align>center</align><label>Keine Einträge in diesem Bereich</label><visible>Integer.IsEqual(Container(599).NumItems,0)</visible></control>
+    </control>
+  </include>
+</includes>

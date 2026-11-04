@@ -1,0 +1,54 @@
+--- dom/webgpu/SharedTexture.cpp.orig
++++ dom/webgpu/SharedTexture.cpp
+@@ -14,7 +14,7 @@
+ #  include "mozilla/webgpu/SharedTextureDMABuf.h"
+ #endif
+ 
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ #  include "mozilla/webgpu/SharedTextureMacIOSurface.h"
+ #endif
+ 
+@@ -35,7 +35,7 @@
+ #elif defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+   texture = SharedTextureDMABuf::Create(aParent, aDeviceId, aWidth, aHeight,
+                                         aFormat, aUsage);
+-#elif defined(XP_MACOSX)
++#elif defined(MOZ_WIDGET_COCOA)
+   texture = SharedTextureMacIOSurface::Create(aParent, aDeviceId, aWidth,
+                                               aHeight, aFormat, aUsage);
+ #endif
+--- dom/webgpu/ipc/WebGPUParent.cpp.orig
++++ dom/webgpu/ipc/WebGPUParent.cpp
+@@ -29,7 +29,7 @@
+ #  include "mozilla/webgpu/SharedTextureDMABuf.h"
+ #endif
+ 
+-#if defined(XP_MACOSX)
++#ifdef MOZ_WIDGET_COCOA
+ #  include "mozilla/webgpu/SharedTextureMacIOSurface.h"
+ #endif
+ 
+@@ -148,6 +148,7 @@
+ #if defined(XP_MACOSX)
+ extern uint32_t wgpu_server_get_external_io_surface_id(
+     WGPUWebGPUParentPtr aParent, WGPUTextureId aId) {
++#ifdef MOZ_WIDGET_COCOA
+   auto* parent = static_cast<WebGPUParent*>(aParent);
+ 
+   auto texture = parent->GetSharedTexture(aId);
+@@ -162,6 +163,14 @@
+     return 0;
+   }
+   return textureIOSurface->GetIOSurfaceId();
++#else
++  // MacPorts firefox-x11 10.9-Backport: SharedTextureMacIOSurface is cocoa-only.
++  // Keep the FFI symbol defined on Darwin (Rust cfg(macos) references it) but stub
++  // it on the GTK/10.9 build; WebGPU IOSurface presentation is unused here anyway.
++  (void)aParent;
++  (void)aId;
++  return 0;
++#endif
+ }
+ #endif
+ 

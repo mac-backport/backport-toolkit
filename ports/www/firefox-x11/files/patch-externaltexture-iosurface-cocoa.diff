@@ -1,0 +1,34 @@
+--- dom/webgpu/ExternalTexture.cpp.orig
++++ dom/webgpu/ExternalTexture.cpp
+@@ -29,11 +29,21 @@
+ #  include "mozilla/layers/GpuProcessD3D11TextureMap.h"
+ #  include "mozilla/layers/TextureD3D11.h"
+ #endif
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+ #  include "mozilla/gfx/MacIOSurface.h"
+ #  include "mozilla/layers/MacIOSurfaceTextureHostOGL.h"
+ #endif
+ 
++// MacPorts firefox-x11 10.9-Backport: MacIOSurface(TextureHostOGL) is cocoa-only
++// (header exported only for the cocoa toolkit). The include + function body are
++// gated to MOZ_WIDGET_COCOA above (GTK build takes the existing #else MOZ_CRASH,
++// never reached at runtime). The signature type still needs a forward declaration.
++namespace mozilla {
++namespace layers {
++class MacIOSurfaceTextureHostOGL;
++}
++}
++
+ namespace mozilla::webgpu {
+ 
+ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_WEAK_PTR(ExternalTexture, mParent)
+@@ -889,7 +899,7 @@
+     WebGPUParent* aParent, RawId aDeviceId,
+     const ExternalTextureSourceDescriptor& aDesc,
+     const layers::MacIOSurfaceTextureHostOGL* aTextureHost) {
+-#ifdef XP_MACOSX
++#ifdef MOZ_WIDGET_COCOA
+   const RefPtr<MacIOSurface> ioSurface = aTextureHost->mSurface;
+   if (!ioSurface) {
+     gfxCriticalErrorOnce() << "Failed to lookup MacIOSurface";

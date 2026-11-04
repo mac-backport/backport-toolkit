@@ -1,0 +1,105 @@
+diff --git a/tools/EventClients/Clients/OSXRemote/XBMCHelper.h b/tools/EventClients/Clients/OSXRemote/XBMCHelper.h
+index da33a8b..24f0340 100644
+--- a/tools/EventClients/Clients/OSXRemote/XBMCHelper.h
++++ b/tools/EventClients/Clients/OSXRemote/XBMCHelper.h
+@@ -16,6 +16,9 @@
+   NSString* mp_app_path;
+   NSString* mp_home_path;
+   bool m_verbose;
++  BOOL m_suppressNextRemotePress;
++  BOOL m_suppressRemoteRelease;
++  HIDRemoteButtonCode m_suppressedButton;
+ }
+ 
+ - (void) enableVerboseMode:(bool) f_really;
+diff --git a/tools/EventClients/Clients/OSXRemote/XBMCHelper.m b/tools/EventClients/Clients/OSXRemote/XBMCHelper.m
+index 5e73ebe..4a1494b 100644
+--- a/tools/EventClients/Clients/OSXRemote/XBMCHelper.m
++++ b/tools/EventClients/Clients/OSXRemote/XBMCHelper.m
+@@ -15,12 +15,22 @@
+ 
+ - (NSString *)buttonNameForButtonCode:(HIDRemoteButtonCode)buttonCode;
+ - (void) checkAndLaunchApp;
++- (void) systemWillSleep:(NSNotification *)notification;
++- (void) systemDidWake:(NSNotification *)notification;
++- (void) clearWakeSuppression;
+ 
+ @end
+ 
+ @implementation XBMCHelper
+ - (id) init{
+   if( (self = [super init]) ){
++    m_suppressNextRemotePress = NO;
++    m_suppressRemoteRelease = NO;
++    NSNotificationCenter *workspaceNotifications = [[NSWorkspace sharedWorkspace] notificationCenter];
++    [workspaceNotifications addObserver:self selector:@selector(systemWillSleep:)
++                                   name:NSWorkspaceWillSleepNotification object:nil];
++    [workspaceNotifications addObserver:self selector:@selector(systemDidWake:)
++                                   name:NSWorkspaceDidWakeNotification object:nil];
+     if ((remote = [HIDRemote sharedHIDRemote]))
+     {
+       [remote setDelegate:self];
+@@ -67,6 +77,8 @@
+ 
+ //----------------------------------------------------------------------------
+ - (void) dealloc{
++  [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self];
++  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearWakeSuppression) object:nil];
+   [remote stopRemoteControl];
+   if( [remote delegate] == self)
+     [remote setDelegate:nil];
+@@ -120,6 +132,28 @@
+ - (void)hidRemote:(HIDRemote *)hidRemote eventWithButton:(HIDRemoteButtonCode)buttonCode
+         isPressed:(BOOL)isPressed fromHardwareWithAttributes:(NSMutableDictionary *)attributes
+ {
++  // A remote press used to wake the Mac must not also reach Kodi. Arm on sleep
++  // (the HID press can precede the did-wake notification), swallow its matching
++  // release too, and expire shortly after non-remote wakeups.
++  if (m_suppressNextRemotePress && isPressed)
++  {
++    m_suppressNextRemotePress = NO;
++    m_suppressRemoteRelease = YES;
++    m_suppressedButton = buttonCode;
++    DLOG(@"Suppressing wake-up remote button '%@'", [self buttonNameForButtonCode:buttonCode]);
++    return;
++  }
++  if (m_suppressRemoteRelease && isPressed)
++  {
++    // HIDRemote may synthesize a hold event before the original button is
++    // released. It belongs to the same wake gesture and must be swallowed.
++    return;
++  }
++  if (m_suppressRemoteRelease && !isPressed && buttonCode == m_suppressedButton)
++  {
++    m_suppressRemoteRelease = NO;
++    return;
++  }
+   if(m_verbose){
+     NSLog(@"Received button '%@' %@ event", [self buttonNameForButtonCode:buttonCode], (isPressed)?@"press":@"release");
+   }
+@@ -214,6 +248,25 @@
+ #pragma mark -
+ #pragma mark Helper methods
+ 
++- (void) systemWillSleep:(NSNotification *)notification
++{
++  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearWakeSuppression) object:nil];
++  m_suppressNextRemotePress = YES;
++  m_suppressRemoteRelease = NO;
++}
++
++- (void) systemDidWake:(NSNotification *)notification
++{
++  // If the Mac was woken by keyboard, mouse or a timer, do not eat a much
++  // later, unrelated remote command.
++  [self performSelector:@selector(clearWakeSuppression) withObject:nil afterDelay:2.0];
++}
++
++- (void) clearWakeSuppression
++{
++  m_suppressNextRemotePress = NO;
++}
++
+ - (NSString *)buttonNameForButtonCode:(HIDRemoteButtonCode)buttonCode
+ {
+ 	switch (buttonCode)

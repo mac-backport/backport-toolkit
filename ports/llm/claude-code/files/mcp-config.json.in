@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "computer-use-mavericks": {
+      "type": "stdio",
+      "command": "__MAVDIR__/computer-use/mcp_server.py",
+      "args": [],
+      "env": {}
+    }
+  }
+}

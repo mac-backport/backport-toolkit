@@ -1,0 +1,20 @@
+--- dom/media/MediaData.cpp.orig
++++ dom/media/MediaData.cpp
+@@ -26,7 +26,7 @@
+ #  include "mozilla/gfx/DeviceManagerDx.h"
+ #  include "mozilla/layers/D3D11ShareHandleImage.h"
+ #  include "mozilla/layers/D3D11YCbCrImage.h"
+-#elif XP_MACOSX
++#elif defined(MOZ_WIDGET_COCOA)
+ #  include "MacIOSurfaceImage.h"
+ #  include "mozilla/gfx/gfxVars.h"
+ #endif
+@@ -386,7 +386,7 @@
+ 
+   // Currently our decoder only knows how to output to ImageFormat::PLANAR_YCBCR
+   // format.
+-#if XP_MACOSX
++#if defined(MOZ_WIDGET_COCOA)
+   if (aAllocator && aAllocator->GetWebRenderCompositorType() !=
+                         layers::WebRenderCompositor::SOFTWARE) {
+     RefPtr<layers::MacIOSurfaceImage> ioImage =

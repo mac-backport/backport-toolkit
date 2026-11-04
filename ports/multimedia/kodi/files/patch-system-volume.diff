@@ -1,0 +1,287 @@
+diff --git a/xbmc/Application.cpp b/xbmc/Application.cpp
+index fde7fda..80a2c63 100644
+--- a/xbmc/Application.cpp
++++ b/xbmc/Application.cpp
+@@ -78,6 +78,9 @@
+ #include "settings/AdvancedSettings.h"
+ #include "settings/DisplaySettings.h"
+ #include "settings/MediaSettings.h"
++#if defined(TARGET_DARWIN_OSX)
++#include "platform/darwin/osx/CocoaInterface.h"
++#endif
+ #include "settings/SettingsComponent.h"
+ #include "settings/SkinSettings.h"
+ #include "guilib/LocalizeStrings.h"
+@@ -575,6 +578,10 @@ bool CApplication::Create(const CAppParamParser &params)
+   CServiceBroker::RegisterAE(m_pActiveAE.get());
+ 
+   // restore AE's previous volume state
++#if defined(TARGET_DARWIN_OSX)
++  // CoreAudio is authoritative; never overwrite it with Kodi's saved value at startup.
++  Cocoa_GetSystemVolume(&m_volumeLevel);
++#endif
+   SetHardwareVolume(m_volumeLevel);
+   CServiceBroker::GetActiveAE()->SetMute(m_muted);
+ 
+@@ -1963,9 +1970,11 @@ bool CApplication::OnAction(const CAction &action)
+   {
+     if (!m_appPlayer.IsPassthrough())
+     {
+-      if (m_muted)
++      if (IsMuted())
+         UnMute();
+-      float volume = m_volumeLevel;
++      // GetVolume() also observes changes made with the Mac keyboard or other
++      // CoreAudio clients on OS X.
++      float volume = GetVolume(false);
+       int volumesteps = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_AUDIOOUTPUT_VOLUMESTEPS);
+       // sanity check
+       if (volumesteps == 0)
+@@ -4289,6 +4298,11 @@ bool CApplication::IsMuted() const
+ {
+   if (CServiceBroker::GetPeripherals().IsMuted())
+     return true;
++#if defined(TARGET_DARWIN_OSX)
++  bool muted;
++  if (Cocoa_GetSystemMute(&muted))
++    return muted;
++#endif
+   IAE* ae = CServiceBroker::GetActiveAE();
+   if (ae)
+     return ae->IsMuted();
+@@ -4297,7 +4311,7 @@ bool CApplication::IsMuted() const
+ 
+ void CApplication::ToggleMute(void)
+ {
+-  if (m_muted)
++  if (IsMuted())
+     UnMute();
+   else
+     Mute();
+@@ -4305,7 +4319,7 @@ void CApplication::ToggleMute(void)
+ 
+ void CApplication::SetMute(bool mute)
+ {
+-  if (m_muted != mute)
++  if (IsMuted() != mute)
+   {
+     ToggleMute();
+     m_muted = mute;
+@@ -4318,6 +4332,9 @@ void CApplication::Mute()
+     return;
+ 
+   IAE* ae = CServiceBroker::GetActiveAE();
++#if defined(TARGET_DARWIN_OSX)
++  Cocoa_SetSystemMute(true);
++#endif
+   if (ae)
+     ae->SetMute(true);
+   m_muted = true;
+@@ -4330,6 +4347,9 @@ void CApplication::UnMute()
+     return;
+ 
+   IAE* ae = CServiceBroker::GetActiveAE();
++#if defined(TARGET_DARWIN_OSX)
++  Cocoa_SetSystemMute(false);
++#endif
+   if (ae)
+     ae->SetMute(false);
+   m_muted = false;
+@@ -4353,19 +4373,33 @@ void CApplication::SetHardwareVolume(float hardwareVolume)
+   m_volumeLevel = hardwareVolume;
+ 
+   IAE* ae = CServiceBroker::GetActiveAE();
++#if defined(TARGET_DARWIN_OSX)
++  if (Cocoa_SetSystemVolume(hardwareVolume))
++  {
++    // CoreAudio is the single volume authority. Avoid applying the same
++    // attenuation a second time in Kodi's software mixer.
++    if (ae)
++      ae->SetVolume(VOLUME_MAXIMUM);
++    return;
++  }
++#endif
+   if (ae)
+     ae->SetVolume(hardwareVolume);
+ }
+ 
+ float CApplication::GetVolume(bool percentage /* = true */) const
+ {
++  float volume = m_volumeLevel;
++#if defined(TARGET_DARWIN_OSX)
++  Cocoa_GetSystemVolume(&volume);
++#endif
+   if (percentage)
+   {
+     // converts the hardware volume to a percentage
+-    return m_volumeLevel * 100.0f;
++    return volume * 100.0f;
+   }
+ 
+-  return m_volumeLevel;
++  return volume;
+ }
+ 
+ void CApplication::VolumeChanged()
+diff --git a/xbmc/platform/darwin/osx/CocoaInterface.h b/xbmc/platform/darwin/osx/CocoaInterface.h
+index 357c37d..83787b7 100644
+--- a/xbmc/platform/darwin/osx/CocoaInterface.h
++++ b/xbmc/platform/darwin/osx/CocoaInterface.h
+@@ -31,6 +31,14 @@ extern "C"
+   char* Cocoa_MountPoint2DeviceName(char *path);
+   bool Cocoa_GetVolumeNameFromMountPoint(const std::string &mountPoint, std::string &volumeName);
+ 
++  // CoreAudio volume of the current default output device. These functions
++  // return false for fixed-volume outputs so callers can retain their normal
++  // software-volume fallback.
++  bool Cocoa_GetSystemVolume(float *volume);
++  bool Cocoa_SetSystemVolume(float volume);
++  bool Cocoa_GetSystemMute(bool *muted);
++  bool Cocoa_SetSystemMute(bool muted);
++
+   // Mouse.
+   //
+   void Cocoa_HideMouse();
+diff --git a/xbmc/platform/darwin/osx/CocoaInterface.mm b/xbmc/platform/darwin/osx/CocoaInterface.mm
+index f4f2fe2..e987da8 100644
+--- a/xbmc/platform/darwin/osx/CocoaInterface.mm
++++ b/xbmc/platform/darwin/osx/CocoaInterface.mm
+@@ -8,6 +8,8 @@
+ #import <unistd.h>
+ #import <sys/mount.h>
+ 
++#include <algorithm>
++
+ #include "utils/log.h"
+ #include "CompileInfo.h"
+ #include "ServiceBroker.h"
+@@ -30,6 +32,129 @@
+ //display link for display management
+ static CVDisplayLinkRef displayLink = NULL;
+ 
++static bool Cocoa_GetDefaultOutputDevice(AudioDeviceID *device)
++{
++  AudioObjectPropertyAddress address = {
++    kAudioHardwarePropertyDefaultOutputDevice,
++    kAudioObjectPropertyScopeGlobal,
++    kAudioObjectPropertyElementMaster
++  };
++  UInt32 size = sizeof(*device);
++  return AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL,
++                                    &size, device) == noErr &&
++         *device != kAudioObjectUnknown;
++}
++
++static bool Cocoa_GetOutputProperty(AudioObjectPropertySelector selector, UInt32 element,
++                                    Float32 *value)
++{
++  AudioDeviceID device;
++  if (!Cocoa_GetDefaultOutputDevice(&device))
++    return false;
++
++  AudioObjectPropertyAddress address = {
++    selector, kAudioDevicePropertyScopeOutput, element
++  };
++  UInt32 size = sizeof(*value);
++  return AudioObjectHasProperty(device, &address) &&
++         AudioObjectGetPropertyData(device, &address, 0, NULL, &size, value) == noErr;
++}
++
++static bool Cocoa_SetOutputProperty(AudioObjectPropertySelector selector, UInt32 element,
++                                    Float32 value)
++{
++  AudioDeviceID device;
++  if (!Cocoa_GetDefaultOutputDevice(&device))
++    return false;
++
++  AudioObjectPropertyAddress address = {
++    selector, kAudioDevicePropertyScopeOutput, element
++  };
++  Boolean writable = false;
++  if (!AudioObjectHasProperty(device, &address) ||
++      AudioObjectIsPropertySettable(device, &address, &writable) != noErr || !writable)
++    return false;
++  return AudioObjectSetPropertyData(device, &address, 0, NULL, sizeof(value), &value) == noErr;
++}
++
++static bool Cocoa_GetOutputUInt32(AudioObjectPropertySelector selector, UInt32 *value)
++{
++  AudioDeviceID device;
++  if (!Cocoa_GetDefaultOutputDevice(&device))
++    return false;
++  AudioObjectPropertyAddress address = {
++    selector, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMaster
++  };
++  UInt32 size = sizeof(*value);
++  return AudioObjectHasProperty(device, &address) &&
++         AudioObjectGetPropertyData(device, &address, 0, NULL, &size, value) == noErr;
++}
++
++static bool Cocoa_SetOutputUInt32(AudioObjectPropertySelector selector, UInt32 value)
++{
++  AudioDeviceID device;
++  if (!Cocoa_GetDefaultOutputDevice(&device))
++    return false;
++  AudioObjectPropertyAddress address = {
++    selector, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMaster
++  };
++  Boolean writable = false;
++  if (!AudioObjectHasProperty(device, &address) ||
++      AudioObjectIsPropertySettable(device, &address, &writable) != noErr || !writable)
++    return false;
++  return AudioObjectSetPropertyData(device, &address, 0, NULL, sizeof(value), &value) == noErr;
++}
++
++bool Cocoa_GetSystemVolume(float *volume)
++{
++  if (!volume)
++    return false;
++  Float32 value;
++  if (Cocoa_GetOutputProperty(kAudioDevicePropertyVolumeScalar,
++                              kAudioObjectPropertyElementMaster, &value))
++  {
++    *volume = value;
++    return true;
++  }
++
++  Float32 left, right;
++  if (Cocoa_GetOutputProperty(kAudioDevicePropertyVolumeScalar, 1, &left) &&
++      Cocoa_GetOutputProperty(kAudioDevicePropertyVolumeScalar, 2, &right))
++  {
++    *volume = (left + right) / 2.0f;
++    return true;
++  }
++  return false;
++}
++
++bool Cocoa_SetSystemVolume(float volume)
++{
++  volume = std::max(0.0f, std::min(1.0f, volume));
++  if (Cocoa_SetOutputProperty(kAudioDevicePropertyVolumeScalar,
++                              kAudioObjectPropertyElementMaster, volume))
++    return true;
++
++  const bool left = Cocoa_SetOutputProperty(kAudioDevicePropertyVolumeScalar, 1, volume);
++  const bool right = Cocoa_SetOutputProperty(kAudioDevicePropertyVolumeScalar, 2, volume);
++  return left && right;
++}
++
++bool Cocoa_GetSystemMute(bool *muted)
++{
++  if (!muted)
++    return false;
++  UInt32 value;
++  if (!Cocoa_GetOutputUInt32(kAudioDevicePropertyMute, &value))
++    return false;
++  *muted = value != 0.0f;
++  return true;
++}
++
++bool Cocoa_SetSystemMute(bool muted)
++{
++  return Cocoa_SetOutputUInt32(kAudioDevicePropertyMute, muted ? 1 : 0);
++}
++
+ CGDirectDisplayID Cocoa_GetDisplayIDFromScreen(NSScreen *screen);
+ 
+ NSOpenGLContext* Cocoa_GL_GetCurrentContext(void)

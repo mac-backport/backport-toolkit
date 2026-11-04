@@ -1,0 +1,29 @@
+--- src/bootstrap/src/bin/main.rs.orig
++++ src/bootstrap/src/bin/main.rs
+@@ -22,6 +22,26 @@
+ }
+ 
+ fn main() {
++    // backport-toolkit overlay (macOS 10.9 / Darwin 13): bootstrap does deep
++    // (but legal) recursion (TOML/serde, dependency-graph walks) on its main
++    // thread. On Mavericks pthread_get_stacksize_np() misreports the main
++    // thread's stack as 512 KiB (real is RLIMIT_STACK, ~8 MiB), so std installs
++    // the stack-overflow guard page ~512 KiB below the top -- inside the live
++    // stack -- and that recursion faults as a spurious "stack overflow". Spawned
++    // threads report their real stack size, so run everything on one with an
++    // explicit large stack; its guard is then placed correctly. This only
++    // rescues the stage0-linked bootstrap binary during the build; the produced
++    // compiler's std is fixed separately (get_stack_start). See rust-lang#43347.
++    let handle = std::thread::Builder::new()
++        .stack_size(64 * 1024 * 1024)
++        .spawn(run)
++        .expect("failed to spawn bootstrap main thread");
++    if handle.join().is_err() {
++        std::process::exit(1);
++    }
++}
++
++fn run() {
+     #[cfg(feature = "tracing")]
+     let guard = bootstrap::setup_tracing("BOOTSTRAP_TRACING");
+ 
