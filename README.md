@@ -48,7 +48,8 @@ sudo port -n install go-1.27 rust                # then whatever you need: gh, m
   are published as signed MacPorts archives in
   [mac-backport/packages](https://github.com/mac-backport/packages/releases) — one release
   per port. `setup-local-ports.sh` adds that site to `archive_sites.conf` and
-  [`keys/mac-backport-archives.pem`](keys/mac-backport-archives.pem) to `pubkeys.conf`, so
+  a root-owned copy of [`keys/mac-backport-archives.pem`](keys/mac-backport-archives.pem)
+  (`/opt/local/etc/macports/keys/`) to `pubkeys.conf`, so
   `port install` downloads instead of compiling for hours (and still builds from source when
   no matching archive exists). Maintainers publish with `bin/publish-archives.sh <port>...`.
 - **Updates:** `ports/` lives in a git checkout, so `sudo port selfupdate` runs

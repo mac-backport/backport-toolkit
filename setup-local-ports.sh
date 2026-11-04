@@ -32,11 +32,23 @@ if ! grep -q "^name[[:space:]]*mac-backport" "$AS"; then
 else
   echo "   archive site schon vorhanden."
 fi
-if ! grep -qxF "$TOOLKIT/keys/mac-backport-archives.pem" "$PK"; then
-  echo "$TOOLKIT/keys/mac-backport-archives.pem" | sudo tee -a "$PK" >/dev/null
-  echo "   Schlüssel eingetragen."
+# Root-eigene Kopie des Public Keys: MacPorts prüft damit als root, was es installiert -> der
+# Schlüssel darf nicht in einem benutzer-schreibbaren Checkout liegen. Erneut ausführen, wenn
+# sich keys/mac-backport-archives.pem ändert.
+KEYDIR=/opt/local/etc/macports/keys
+KEY="$KEYDIR/mac-backport-archives.pem"
+sudo install -d -o root -g wheel -m 0755 "$KEYDIR"
+sudo install -o root -g wheel -m 0644 "$TOOLKIT/keys/mac-backport-archives.pem" "$KEY"
+if ! grep -qxF "$KEY" "$PK"; then
+  echo "$KEY" | sudo tee -a "$PK" >/dev/null
+  echo "   Schlüssel eingetragen ($KEY)."
 else
-  echo "   Schlüssel schon vorhanden."
+  echo "   Schlüssel aktualisiert ($KEY)."
+fi
+# früherer Eintrag (Schlüssel direkt im Checkout) entfernen
+if grep -qxF "$TOOLKIT/keys/mac-backport-archives.pem" "$PK"; then
+  sudo sed -i.bak "\|^$TOOLKIT/keys/mac-backport-archives.pem\$|d" "$PK"
+  echo "   alten Schlüssel-Pfad aus pubkeys.conf entfernt."
 fi
 
 echo "==> fertig. Ports einzeln installieren, immer mit -n, z.B.:"
