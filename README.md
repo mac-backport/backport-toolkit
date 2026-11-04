@@ -36,7 +36,7 @@ Requirements: OS X 10.9.5 (x86_64), Command Line Tools, MacPorts 2.12+ (Maverick
 ```sh
 sudo port -n install git
 git clone https://github.com/mac-backport/backport-toolkit.git ~/backport-toolkit
-~/backport-toolkit/setup-local-ports.sh          # adds ports/ to sources.conf (before rsync) + portindex
+~/backport-toolkit/setup-local-ports.sh          # ports/ into sources.conf + binary package site + key
 sudo port -n install legacy-support              # the one 10.9 shim
 sudo port -n install clang-22                    # modern compiler
 ~/backport-toolkit/bin/apply-clang-backport-cfg.sh
@@ -44,6 +44,13 @@ sudo port -n install macports-libcxx             # libc++ runtime matching clang
 sudo port -n install go-1.27 rust                # then whatever you need: gh, mpv, nodejs26, ...
 ```
 
+- **Binary packages:** the big ports (clang-22, llvm-22, rust, go-1.27, nodejs26, mpv, ...)
+  are published as signed MacPorts archives in
+  [mac-backport/packages](https://github.com/mac-backport/packages/releases) — one release
+  per port. `setup-local-ports.sh` adds that site to `archive_sites.conf` and
+  [`keys/mac-backport-archives.pem`](keys/mac-backport-archives.pem) to `pubkeys.conf`, so
+  `port install` downloads instead of compiling for hours (and still builds from source when
+  no matching archive exists). Maintainers publish with `bin/publish-archives.sh <port>...`.
 - **Updates:** `ports/` lives in a git checkout, so `sudo port selfupdate` runs
   `git pull --rebase` + `portindex` on its own. Upgrade single ports with
   `sudo port -n upgrade <name>` — avoid `port upgrade outdated` (dependency cascades).

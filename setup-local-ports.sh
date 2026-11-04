@@ -21,6 +21,24 @@ else
   echo "   schon vorhanden."
 fi
 
+echo "==> Binärpakete: archive site + Signatur-Schlüssel (sonst baut MacPorts alles selbst)"
+TOOLKIT="$(dirname "$TREE")"
+AS=/opt/local/etc/macports/archive_sites.conf
+PK=/opt/local/etc/macports/pubkeys.conf
+if ! grep -q "^name[[:space:]]*mac-backport" "$AS"; then
+  printf '\n# mac-backport overlay: signierte Binärarchive (GitHub-Releases, ein Release je Port)\nname                mac-backport\nurls                https://github.com/mac-backport/packages/releases/download/\n' \
+    | sudo tee -a "$AS" >/dev/null
+  echo "   archive site eingetragen."
+else
+  echo "   archive site schon vorhanden."
+fi
+if ! grep -qxF "$TOOLKIT/keys/mac-backport-archives.pem" "$PK"; then
+  echo "$TOOLKIT/keys/mac-backport-archives.pem" | sudo tee -a "$PK" >/dev/null
+  echo "   Schlüssel eingetragen."
+else
+  echo "   Schlüssel schon vorhanden."
+fi
+
 echo "==> fertig. Ports einzeln installieren, immer mit -n, z.B.:"
 echo "   sudo port -n install legacy-support"
 echo "   sudo port -n install clang-22"
