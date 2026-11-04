@@ -103,6 +103,8 @@ destroot {
 
 # LaunchDaemon (port load bgutil-pot-server), unprivileged: the server writes no files
 startupitem.create      yes
+# loaded on activation: Sofa needs it, no extra `port load` step
+startupitem.autostart   yes
 startupitem.executable  ${prefix}/bin/${name}
 startupitem.user        nobody
 # own log dir, writable by the daemon user (nobody may not write ${prefix}/var/log)

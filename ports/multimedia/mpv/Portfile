@@ -49,16 +49,11 @@ depends_lib             port:ffmpeg \
 
 universal_variant       no
 
-default_variants        +osd +opengl +bluray +dvd +audiocd +libarchive +libmpv
-if {![variant_isset network]} {
-    default_variants-append \
-                        +network_ytdlp
-}
-
-platform darwin {
-    default_variants-append \
-                        +bundle +rubberband
-}
+# backport-toolkit overlay: lean defaults = exactly the set that is built, tested and
+# published as binary archive (mpv +libmpv +opengl +python314; Sofa needs libmpv).
+# Upstream defaults (+osd +bluray +dvd +audiocd +libarchive +network_ytdlp +bundle
+# +rubberband) pull in many more libraries; they stay available as variants.
+default_variants        +opengl +libmpv
 
 configure.args-append   --buildtype=release \
                         -Dmanpage-build=enabled \

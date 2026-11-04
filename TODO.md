@@ -10,6 +10,8 @@ Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
       Messung: `~/Library/Caches/claude-netdebug/stalls.py <seit>`.
 - [ ] **Recaulk aus Quelle** (devel/recaulk, build/build-lib.sh: MLS-Pin v1.5.2 f89c155,
       drydock/shipyard von Mavergreen) statt Release-Binary; danach `files/mavericks/libSystemWrapper.dylib` löschen.
+      Recherchiert 2026-11-04, **zurückgestellt**: braucht Mavergreens shipyard (SDK-Fetch) + drydock,
+      Recaulk selbst baut mit seinem Release-Binary; das Release-pkg ist gegen Upstream-SHA256SUMS geprüft.
 - [x] **`net/bgutil-pot-server`** 2.0.2 (2026-11-04): offline gebaut (vendor node_modules am Release
       `distfiles`, Node-Header-Distfile für node-gyp, canvas nativ), LaunchDaemon als `nobody` nur auf
       127.0.0.1:4416 (Handaufbau 1.3.1 lauschte auf allen Interfaces → nach
@@ -21,12 +23,15 @@ Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
       Offen: diese Maschine darauf umstellen (siehe Sofa NOTES), Lizenz für Sofa festlegen.
 
 ## Infrastruktur
-- [ ] **Binärarchive**: signierte MacPorts-Archive (`archive_sites` + Public Key in
+- [ ] **Binärarchive** (vorbereitet: `bin/publish-archives.sh`, `keys/`; wartet auf OK für
+      öffentliches Repo `mac-backport/packages`): signierte MacPorts-Archive (`archive_sites` + Public Key in
       `pubkeys.conf`) für clang-22, rust, go-1.27, nodejs26, mpv … auf GitHub-Releases →
       neuer Mac lädt statt stundenlang zu bauen.
 - [ ] **CI** (GitHub Actions): `port lint` der geänderten Portfiles + Scan auf private Daten
       (Pfade, Tokens, Tailnet).
 - [ ] **Upstream**: generische 10.9-Fixes an MacPorts anbieten (legacy-support-Ergänzungen,
       gh-Quellbuild für <10.13, go) → Overlay schrumpft auf das wirklich 10.9-Spezifische.
+      Kandidaten + Vorgehen (MacPorts-KI-Regeln: Mensch reicht ein, `Assisted-by: LLM`):
+      `docs/upstream-proposals.md`. aligned_alloc/mkostemp/CCRandomGenerateBytes sind schon in MLS master.
 - [ ] `retired/` und `ports/www/firefox-x11/files/_COMPLETE-worktree-delta-*.diff` aufräumen
       (Historie, nicht mehr benötigt?).
