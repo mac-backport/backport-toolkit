@@ -5,7 +5,7 @@ PortGroup           meson 1.0
 
 name                zathura
 version             0.4.4
-# 2026-09-01: Overlay-Delta ueber stock office/zathura. girara 0.4.5 hat die
+# 2026-09-01: Overlay-Delta ueber stock office/zathura. girara 0.4.3 hat die
 # Feldreihenfolge von girara_argument_t getauscht ({int n; void* data;} ->
 # {void* data; int n;}, soname .3->.4). zathura 0.4.4 nutzt positionale
 # Initializer in alter Reihenfolge -> mit clang-22 harter -Wint-conversion-
