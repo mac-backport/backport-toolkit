@@ -1,0 +1,81 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           github 1.0
+PortGroup           active_variants 1.1
+
+# backport-toolkit overlay: Sofa -- turn an old iMac into a web TV.
+# Native Cocoa smart-TV app for OS X 10.9 with the Apple Remote: YouTube, ZDF, ARD,
+# ORF, media.ccc.de. Main use case of this overlay (clang-22, curl/OpenSSL for
+# TLS 1.3, mpv/libmpv for VP9/AV1, python314 for yt-dlp).
+github.setup        robertkleinschuster sofa 0.1.0 v
+github.tarball_from archive
+revision            0
+
+categories          multimedia aqua
+license             Restrictive
+maintainers         nomaintainer
+supported_archs     x86_64
+platforms           {darwin >= 13}
+description         Turn an old iMac into a web TV (Apple Remote, YouTube, Mediatheken)
+long_description    Sofa is a native smart-TV app for old Intel Macs on OS X 10.9, \
+                    operated with the 7-button Apple Remote: YouTube (subscriptions, \
+                    Watch Later, phone pairing), ZDF, ARD, ORF and media.ccc.de, \
+                    following shows, automatic downloads, H.264 in hardware and \
+                    VP9/AV1 via libmpv.
+homepage            https://github.com/robertkleinschuster/sofa
+
+checksums           rmd160  e19a29d8ea5fa19e47e3d415909b1800bed8f484 \
+                    sha256  8df05e9e95b18125d43b195ea4a220449ca1d974554df7e3806b0cb4d60814b8 \
+                    size    415047
+
+compiler.whitelist  macports-clang-22
+
+depends_lib         port:curl \
+                    port:sqlite3 \
+                    port:mpv \
+                    port:ffmpeg \
+                    port:quickjs \
+                    port:librsvg \
+                    port:python314
+# yt-dlp asks this local service for YouTube PO tokens; Sofa pins the yt-dlp plugin
+# to the version it reports.
+depends_run         port:bgutil-pot-server
+
+require_active_variants mpv libmpv
+
+post-patch {
+    # tools Sofa calls (ffmpeg, qjs, rsvg-convert, python3.14) and headers/libs: MacPorts prefix
+    foreach f [concat [glob ${worksrcpath}/src/*.m ${worksrcpath}/helper/*.m] ${worksrcpath}/res/ytresolver.py] {
+        reinplace -q "s|/opt/local|${prefix}|g" ${f}
+    }
+    # LaunchAgents point to the installed app
+    reinplace "s|/Applications/Sofa.app|${applications_dir}/Sofa.app|g" \
+        ${worksrcpath}/res/launchd/de.sofa.app.plist \
+        ${worksrcpath}/res/launchd/de.sofa.remote.plist
+}
+
+use_configure       no
+build.args          CC=${configure.cc} MP=${prefix}
+
+destroot {
+    xinstall -d ${destroot}${applications_dir}
+    copy ${worksrcpath}/build/Sofa.app ${destroot}${applications_dir}/
+    xinstall -d ${destroot}${prefix}/share/doc/${name}
+    xinstall -m 0644 ${worksrcpath}/README.md ${destroot}${prefix}/share/doc/${name}/
+}
+
+# Two per-user LaunchAgents (sudo port load sofa):
+#   de.sofa.remote -- SofaRemote helper: Apple IR receiver, MENU opens Sofa, live updates
+#   de.sofa.app    -- start Sofa at login, restart after a crash
+startupitem.create  yes
+startupitems        name        sofa-remote \
+                    location    LaunchAgents \
+                    uniquename  de.sofa.remote \
+                    custom_file ${worksrcpath}/res/launchd/de.sofa.remote.plist \
+                    name        sofa \
+                    location    LaunchAgents \
+                    uniquename  de.sofa.app \
+                    custom_file ${worksrcpath}/res/launchd/de.sofa.app.plist
+
+livecheck.type      none

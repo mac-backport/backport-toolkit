@@ -15,7 +15,10 @@ Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
       127.0.0.1:4416 (Handaufbau 1.3.1 lauschte auf allen Interfaces → nach
       /Library/LaunchDaemons/disabled-handbuilt/). Update: neue Version → vendor-Tarball neu
       (`npm ci --ignore-scripts`), hochladen, Checksummen. Sofa zieht das yt-dlp-Plugin selbst nach.
-- [ ] **`multimedia/sofa`** (Hauptanwendungsfall, github.com/robertkleinschuster/sofa).
+- [x] **`multimedia/sofa`** 0.1.0 (2026-11-04): GitHub-Tag, clang-22, depends curl sqlite3 mpv(+libmpv)
+      ffmpeg quickjs librsvg python314, run: bgutil-pot-server; Sofa.app nach ${applications_dir};
+      LaunchAgents de.sofa.remote/de.sofa.app per startupitems (custom_file). destroot verifiziert.
+      Offen: diese Maschine darauf umstellen (siehe Sofa NOTES), Lizenz für Sofa festlegen.
 
 ## Infrastruktur
 - [ ] **Binärarchive**: signierte MacPorts-Archive (`archive_sites` + Public Key in
