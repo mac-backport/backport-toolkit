@@ -47,14 +47,16 @@ compiler.whitelist  macports-clang-22
 
 # nodejs26 runs the YouTube sidecar (TypeScript, native type stripping). libmpv is the only
 # player engine since 0.3.10 (linked with -lmpv; AVFoundation is gone). python314 only runs
-# build helpers (compile_commands.json, relinking).
+# build helpers (compile_commands.json, relinking). webp: Sofa decodes WebP thumbnails itself
+# (-lwebp; ImageIO on 10.9 cannot), not only through ffmpeg.
 depends_build       port:python314
 depends_lib         port:curl \
                     port:sqlite3 \
                     port:mpv \
                     port:ffmpeg \
                     port:nodejs26 \
-                    port:librsvg
+                    port:librsvg \
+                    port:webp
 
 require_active_variants mpv libmpv
 
