@@ -1,0 +1,121 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+# backport-toolkit overlay (new port): Xvfb only, the virtual framebuffer X server, from the same
+# XQuartz xorg-server source as xorg-server-legacy (the 10.9 X server port). That port builds Xquartz,
+# and with Xquartz the source's configure switches Xvfb off on darwin (two GLX implementations); this
+# one builds Xvfb alone: GLX through Mesa's software rasterizer (swrast), no Xquartz. Installs only
+# bin/Xvfb (+ man page), so it sits next to any X server port.
+# Why: Sofa's YouTube engine runs Firefox (port firefox-x11) on a virtual display instead of headless -
+# headless Firefox has no GL, hence no WebGL (measured 2026-11-06, sofa docs/youtube-engine.md).
+
+PortSystem      1.0
+PortGroup       github 1.0
+PortGroup       legacysupport 1.1
+
+# for strnlen, at least
+legacysupport.newest_darwin_requires_legacy 10
+
+github.setup    XQuartz xorg-server 16f52e51a203bdb90de5d94478aa9bca4e9c2e67
+github.tarball_from tarball
+
+name            xorg-server-xvfb
+version         1.20.10
+revision        1
+categories      x11
+license         X11
+maintainers     nomaintainer
+description     Xvfb, the X.org virtual framebuffer X server (GLX via Mesa)
+homepage        https://www.x.org
+platforms       darwin
+long_description Xvfb is an X server that renders into memory instead of a screen. GLX \
+                renders through the Mesa software rasterizer, so GL clients (WebGL in \
+                browsers) work without a display.
+
+dist_subdir     xorg-server-legacy
+checksums       rmd160  1ae5d1a6f73315c35b2e7469f22b4c6d1d01d191 \
+                sha256  19f2ef049f40629de2dde3825340760a944ca852fa2983f7a3c5bdbddc63fe29 \
+                size    5843887
+
+depends_build-append \
+        path:bin/pkg-config:pkgconfig \
+        port:xorg-font-util \
+        port:xorg-util-macros \
+        port:xorg-xorgproto \
+        port:xorg-xtrans
+
+# mesa: GL headers and libGL for GLX, swrast_dri at run time
+depends_lib-append \
+        port:mesa \
+        path:lib/pkgconfig/pixman-1.pc:libpixman \
+        port:xorg-libX11 \
+        port:xorg-libXau \
+        port:xorg-libXdmcp \
+        port:xorg-libXfont2 \
+        port:xorg-libxkbfile \
+        port:xorg-libxshmfence
+
+# keymaps (xkbcomp + data) and the fonts every X server opens at start ("fixed", "cursor")
+depends_run-append \
+        port:xkbcomp \
+        port:xkeyboard-config \
+        port:font-alias \
+        port:font-misc-misc \
+        port:font-cursor-misc
+
+configure.args \
+        --disable-xquartz \
+        --enable-xvfb \
+        --enable-glx \
+        --disable-xnest \
+        --disable-xorg \
+        --disable-xephyr \
+        --disable-xwayland \
+        --disable-xwin \
+        --disable-dmx \
+        --disable-kdrive \
+        --disable-dri \
+        --disable-dri2 \
+        --disable-dri3 \
+        --disable-devel-docs \
+        --disable-docs \
+        --with-sha1=CommonCrypto \
+        --without-doxygen \
+        --without-dtrace \
+        --without-fop \
+        --without-xmlto \
+        --with-xkb-path=${prefix}/share/X11/xkb \
+        --with-xkb-bin-directory=${prefix}/bin \
+        --with-default-font-path=${prefix}/share/fonts/misc,built-ins
+
+configure.env-append \
+        RAWCPP=${configure.cpp}
+
+# as xorg-server-legacy: pre-C11 redefinition fix; automake subdir-objects
+patchfiles-append \
+        5006-patch-xorg-server-dont-redefine-GLXscreen.diff \
+        2001-enable-automake-subdir-objects.patch
+# GLX loads Mesa's software driver under its macOS name (swrast_dri.dylib, not .so)
+patchfiles-append \
+        patch-glx-dri-driver-dylib.diff
+patch.pre_args-replace  -p0 -p1
+
+use_autoreconf yes
+autoreconf.args -fvi
+
+build.args V=1
+
+# only the server binary and its man page; headers, pkg-config and protocol.txt belong to the X server port
+post-destroot {
+    set keep [list ${prefix}/bin/Xvfb ${prefix}/share/man/man1/Xvfb.1]
+    foreach f [exec find ${destroot}${prefix} -type f] {
+        set rel [string range $f [string length ${destroot}] end]
+        if {[lsearch -exact $keep $rel] < 0} { file delete $f }
+    }
+    foreach f [exec find ${destroot}${prefix} -type l] { file delete $f }
+    system "find ${destroot}${prefix} -type d -empty -delete"
+    if {![file exists ${destroot}${prefix}/bin/Xvfb]} {
+        return -code error "Xvfb was not built"
+    }
+}
+
+livecheck.type none

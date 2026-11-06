@@ -1,0 +1,17 @@
+--- a/glx/glxdricommon.c
++++ b/glx/glxdricommon.c
+@@ -299,7 +299,13 @@
+             next = NULL;
+         }
+ 
+-        snprintf(filename, sizeof filename, "%.*s/%s_dri.so", path_len, path,
++        /* backport-toolkit: Mesa on macOS installs its DRI drivers as
++         * <name>_dri.dylib (port mesa: lib/dri/swrast_dri.dylib) */
++#ifdef __APPLE__
++        snprintf(filename, sizeof filename, "%.*s/%s_dri.dylib", path_len, path,
++#else
++        snprintf(filename, sizeof filename, "%.*s/%s_dri.so", path_len, path,
++#endif
+                  driverName);
+ 
+         driver = dlopen(filename, RTLD_LAZY | RTLD_LOCAL);
