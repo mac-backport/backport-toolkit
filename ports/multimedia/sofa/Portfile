@@ -7,21 +7,18 @@ PortGroup           active_variants 1.1
 # backport-toolkit overlay: Sofa -- turn an old iMac into a web TV.
 # Native Cocoa smart-TV app for OS X 10.9 with the Apple Remote: YouTube, ZDF, ARD,
 # ORF, media.ccc.de. Main use case of this overlay (clang-22, curl/OpenSSL for
-# TLS 1.3, mpv/libmpv for VP9/AV1, python314 for yt-dlp).
-github.setup        robertkleinschuster sofa 0.3.9 v
+# TLS 1.3, mpv/libmpv as the only player engine).
+github.setup        robertkleinschuster sofa 0.3.10 v
 github.tarball_from archive
 revision            0
 
-# Bundled into Sofa.app at build time, fetched as checksummed distfiles (no network while
-# building): yt-dlp as pinned in res/ytdlp.lock (Sofa's build verifies the maintainers' GPG
-# signature over SHA2-256SUMS on top), and the YouTube sidecar's npm dependencies exactly as in
-# res/sofa-yt/package-lock.json (release asset; tools/fetch-sofa-yt checks it against the lockfile).
-set ytdlp_version   2026.10.26
+# Bundled into Sofa.app at build time, fetched as a checksummed distfile (no network while
+# building): the YouTube sidecar's npm dependencies exactly as in res/sofa-yt/package-lock.json
+# (release asset; tools/fetch-sofa-yt checks it against the lockfile). yt-dlp is gone since 0.3.10.
 set sofa_yt_modules sofa-yt-modules-0b2499bc14b6.tar.gz
 dist_subdir         ${name}/${version}
-master_sites-append https://github.com/yt-dlp/yt-dlp/releases/download/${ytdlp_version}/:ytdlp \
-                    https://github.com/robertkleinschuster/sofa/releases/download/v${version}/:sofayt
-distfiles-append    yt-dlp:ytdlp SHA2-256SUMS:ytdlp SHA2-256SUMS.sig:ytdlp ${sofa_yt_modules}:sofayt
+master_sites-append https://github.com/robertkleinschuster/sofa/releases/download/v${version}/:sofayt
+distfiles-append    ${sofa_yt_modules}:sofayt
 extract.only        ${distname}${extract.suffix}
 
 categories          multimedia aqua
@@ -33,26 +30,14 @@ description         Turn an old iMac into a web TV (Apple Remote, YouTube, Media
 long_description    Sofa is a native smart-TV app for old Intel Macs on OS X 10.9, \
                     operated with the 7-button Apple Remote: YouTube (subscriptions, \
                     Watch Later, phone pairing), ZDF, ARD, ORF and media.ccc.de, \
-                    following shows, automatic downloads, H.264 in hardware and \
-                    VP9/AV1 via libmpv.
+                    following shows, automatic downloads, H.264, VP9 and AV1 \
+                    via libmpv.
 homepage            https://github.com/robertkleinschuster/sofa
 
 checksums           ${distname}${extract.suffix} \
-                    rmd160  1b8cd42cc9083e6d0ee5286ee3c5dbc69e6230b5 \
-                    sha256  91d6248551a3c082b074f7da1902d20be7b38e767516ab2b9b6fdc29be03f409 \
-                    size    4362676 \
-                    yt-dlp \
-                    rmd160  fdd37b5e26b713653a0010ea92f4221869978fc6 \
-                    sha256  e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3 \
-                    size    3073072 \
-                    SHA2-256SUMS \
-                    rmd160  8d6c8a7c59c4f1779b960c1d6763057df35fb81f \
-                    sha256  0d7ec4303a02bcbe66154d478852cdf2e07688d39dc4597316e4424ac4e74356 \
-                    size    1595 \
-                    SHA2-256SUMS.sig \
-                    rmd160  cb57ac85fcf161a045b9ad1da89863da63208b45 \
-                    sha256  f05740ee44224bc5ccd5571ae2b526e91a5c22fdbb5335f1351ba9d928d877cb \
-                    size    566 \
+                    rmd160  d303ca6c2d148c3265dff75ceed62f51027df29c \
+                    sha256  078d7e13945d8556e25930cd8c8bff7cc50b9d2deb8ce53aedebb2b7c08393c7 \
+                    size    5132380 \
                     ${sofa_yt_modules} \
                     rmd160  58cc46e8e7fb4aa8b1ea1912cd8eb8c342f690ca \
                     sha256  c06ae29c199069d6cd7ff479803cf2c0823293f20ca8a2997c056063962055b8 \
@@ -60,22 +45,22 @@ checksums           ${distname}${extract.suffix} \
 
 compiler.whitelist  macports-clang-22
 
-# nodejs26 runs the YouTube sidecar (TypeScript, native type stripping; it also mints the PO
-# tokens for the yt-dlp fallback - no separate token server since 0.3.8) and solves YouTube's JS
-# challenge for yt-dlp; python314 runs yt-dlp.
+# nodejs26 runs the YouTube sidecar (TypeScript, native type stripping). libmpv is the only
+# player engine since 0.3.10 (linked with -lmpv; AVFoundation is gone). python314 only runs
+# build helpers (compile_commands.json, relinking).
+depends_build       port:python314
 depends_lib         port:curl \
                     port:sqlite3 \
                     port:mpv \
                     port:ffmpeg \
                     port:nodejs26 \
-                    port:librsvg \
-                    port:python314
+                    port:librsvg
 
 require_active_variants mpv libmpv
 
 post-patch {
-    # tools Sofa calls (ffmpeg, node, rsvg-convert, python3.14) and headers/libs: MacPorts prefix
-    foreach f [concat [glob ${worksrcpath}/src/*/*.m ${worksrcpath}/helper/*.m] ${worksrcpath}/res/ytresolver.py] {
+    # tools Sofa calls (ffmpeg, node, rsvg-convert) and headers/libs: MacPorts prefix
+    foreach f [glob ${worksrcpath}/src/*/*.m ${worksrcpath}/helper/*.m] {
         reinplace -q "s|/opt/local|${prefix}|g" ${f}
     }
     # LaunchAgents point to the installed app
@@ -86,9 +71,9 @@ post-patch {
 
 use_configure       no
 build.args          CC=${configure.cc} MP=${prefix}
+build.args-append   PYTHON=${prefix}/bin/python3.14
 build.env-append    SOFA_DISTFILES=${distpath} \
-                    NODE_BIN=${prefix}/bin \
-                    PYTHON=${prefix}/bin/python3.14
+                    NODE_BIN=${prefix}/bin
 
 destroot {
     xinstall -d ${destroot}${applications_dir}
