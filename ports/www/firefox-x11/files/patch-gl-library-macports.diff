@@ -1,0 +1,28 @@
+backport-toolkit: GTK/X11 Firefox on macOS loads GL from Mesa (port mesa) under its macOS name
+and path. Upstream asks dlopen for "libGL.so.1" (Linux); on darwin that name is never found, so
+GLX, glxtest and WebGL fail ("libGL.so.1 missing"). @PREFIX@ is set in post-patch.
+--- a/gfx/gl/GLContextProviderGLX.cpp
++++ b/gfx/gl/GLContextProviderGLX.cpp
+@@ -84,6 +84,8 @@
+     const char* libGLfilename = "libGL.so.1";
+ #if defined(__OpenBSD__) || defined(__NetBSD__)
+     libGLfilename = "libGL.so";
++#elif defined(__APPLE__)
++    libGLfilename = "@PREFIX@/lib/libGL.1.dylib";
+ #endif
+ 
+     const bool forceFeatureReport = false;
+--- a/toolkit/xre/glxtest/glxtest.cpp
++++ b/toolkit/xre/glxtest/glxtest.cpp
+@@ -163,6 +163,11 @@
+ #  define LIBGLES_FILENAME "libGLESv2.so"
+ #  define LIBEGL_FILENAME "libEGL.so"
+ #  define LIBDRM_FILENAME "libdrm.so"
++#elif defined(__APPLE__)
++#  define LIBGL_FILENAME "@PREFIX@/lib/libGL.1.dylib"
++#  define LIBGLES_FILENAME "@PREFIX@/lib/libGLESv2.2.dylib"
++#  define LIBEGL_FILENAME "@PREFIX@/lib/libEGL.1.dylib"
++#  define LIBDRM_FILENAME "libdrm.so.2"
+ #else
+ #  define LIBGL_FILENAME "libGL.so.1"
+ #  define LIBGLES_FILENAME "libGLESv2.so.2"
