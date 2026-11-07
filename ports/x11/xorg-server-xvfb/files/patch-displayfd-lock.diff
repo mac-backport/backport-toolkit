@@ -1,0 +1,153 @@
+--- a/include/os.h	2026-11-07 10:37:50.000000000 +0100
++++ b/include/os.h	2026-11-07 10:37:50.000000000 +0100
+@@ -309,6 +309,9 @@
+ extern _X_EXPORT void
+ UnlockServer(void);
+ 
++extern _X_EXPORT Bool
++LockDisplayNumber(int n);
++
+ extern _X_EXPORT int
+ OsLookupColor(int /*screen */ ,
+               char * /*name */ ,
+--- a/os/connection.c	2026-11-07 10:37:50.000000000 +0100
++++ b/os/connection.c	2026-11-07 10:37:50.000000000 +0100
+@@ -263,12 +263,16 @@
+     else { /* -displayfd and no explicit display number */
+         Bool found = 0;
+         for (i = 0; i < 65536 - X_TCP_PORT; i++) {
++            if (!LockDisplayNumber(i))
++                continue;       /* a running server's display */
+             if (TryCreateSocket(i, &partial) && !partial) {
+                 found = 1;
+                 break;
+             }
+-            else
++            else {
+                 CloseWellKnownConnections();
++                UnlockServer();
++            }
+         }
+         if (!found)
+             FatalError("Failed to find a socket to listen on");
+--- a/os/utils.c	2026-11-07 10:37:50.000000000 +0100
++++ b/os/utils.c	2026-11-07 10:38:04.000000000 +0100
+@@ -242,6 +242,12 @@
+ LockServer(void)
+ {}
+ 
++Bool
++LockDisplayNumber(int n)
++{
++    return TRUE;
++}
++
+ void
+ UnlockServer(void)
+ {}
+@@ -256,21 +262,22 @@
+  *      contained inside is valid.  If so, then die.  Otherwise, create
+  *      the lock file containing the PID.
+  */
+-void
+-LockServer(void)
++/*
++ * LockDisplay --
++ *      LockServer's work for one display number: FALSE when a running
++ *      server holds its lock file (nothing created), TRUE once it is ours.
++ */
++static Bool
++LockDisplay(const char *port)
+ {
+     char tmp[PATH_MAX], pid_str[12];
+     int lfd, i, haslock, l_pid, t;
+     const char *tmppath = LOCK_DIR;
+     int len;
+-    char port[20];
+ 
+-    if (nolock || NoListenAll)
+-        return;
+     /*
+      * Path names
+      */
+-    snprintf(port, sizeof(port), "%d", atoi(display));
+     len = strlen(LOCK_PREFIX) > strlen(LOCK_TMP_PREFIX) ? strlen(LOCK_PREFIX) :
+         strlen(LOCK_TMP_PREFIX);
+     len += strlen(tmppath) + strlen(port) + strlen(LOCK_SUFFIX) + 1;
+@@ -366,10 +373,9 @@
+                  * Process is still active.
+                  */
+                 unlink(tmp);
+-                FatalError
+-                    ("Server is already active for display %s\n%s %s\n%s\n",
+-                     port, "\tIf this server is no longer running, remove",
+-                     LockFile, "\tand start again.");
++                LockFile[0] = '\0';   /* not ours: UnlockServer must leave it */
++                StillLocking = FALSE;
++                return FALSE;
+             }
+         }
+     }
+@@ -377,6 +383,41 @@
+     if (!haslock)
+         FatalError("Could not create server lock file: %s\n", LockFile);
+     StillLocking = FALSE;
++    return TRUE;
++}
++
++void
++LockServer(void)
++{
++    char port[20];
++
++    if (nolock || NoListenAll)
++        return;
++    /* -displayfd without a display number: CreateWellKnownSockets locks the
++     * display it picks (LockDisplayNumber) */
++    if (displayfd >= 0 && !explicit_display)
++        return;
++    snprintf(port, sizeof(port), "%d", atoi(display));
++    if (!LockDisplay(port))
++        FatalError
++            ("Server is already active for display %s\n%s %s\n%s\n",
++             port, "\tIf this server is no longer running, remove",
++             LockFile, "\tand start again.");
++}
++
++/*
++ * LockDisplayNumber --
++ *      For -displayfd: lock display n if no running server holds it.
++ */
++Bool
++LockDisplayNumber(int n)
++{
++    char port[20];
++
++    if (nolock || NoListenAll)
++        return TRUE;
++    snprintf(port, sizeof(port), "%d", n);
++    return LockDisplay(port);
+ }
+ 
+ /*
+@@ -389,7 +430,7 @@
+     if (nolock || NoListenAll)
+         return;
+ 
+-    if (!StillLocking) {
++    if (!StillLocking && LockFile[0]) {
+ 
+         (void) unlink(LockFile);
+     }
+@@ -753,7 +794,10 @@
+         else if (strcmp(argv[i], "-displayfd") == 0) {
+             if (++i < argc) {
+                 displayfd = atoi(argv[i]);
+-#ifdef LOCK_SERVER
++#if defined(LOCK_SERVER) && !defined(__APPLE__)
++                /* Linux: a display in use fails at its abstract socket. macOS has
++                 * none - xtrans unlinks the in-use socket file and takes the
++                 * display - so -displayfd keeps the lock files there */
+                 nolock = TRUE;
+ #endif
+             }

@@ -20,7 +20,7 @@ github.tarball_from tarball
 
 name            xorg-server-xvfb
 version         1.20.10
-revision        2
+revision        3
 categories      x11
 license         X11
 maintainers     nomaintainer
@@ -102,6 +102,13 @@ patchfiles-append \
 # for Sofa's bundle (Contents/Runtime). Default unchanged (${prefix}/bin).
 patchfiles-append \
         patch-xkb-bindir.diff
+# -displayfd keeps the lock files on macOS and skips a display a running server holds. Upstream
+# turns locking off with -displayfd: on Linux a display in use fails at its abstract socket, but
+# macOS has none - xtrans unlinks the in-use socket file, so every -displayfd server took :0 and
+# cut the running one off (its socket and, on exit, its display gone; seen 2026-11-07: a test
+# Xvfb took Sofa's engine display).
+patchfiles-append \
+        patch-displayfd-lock.diff
 patch.pre_args-replace  -p0 -p1
 
 use_autoreconf yes
