@@ -48,3 +48,7 @@ boot-time write (after the reset) is as ineffective as a runtime write. Board fi
 settings with a warm reset after writing them; that would take code in the firmware's pre-boot
 stage (an EFI driver), which is out of the question on a machine reachable only remotely. SNBTurbo
 has no effect and should be removed.
+
+FlexCommitTest (flexcommit.c): under 4-core load rewrites MSR_FLEX_RATIO with its own value after
+0x1AD was raised, samples, then sets 0x1AD back to factory. Result: no effect - see
+../flashprobe/README.md.

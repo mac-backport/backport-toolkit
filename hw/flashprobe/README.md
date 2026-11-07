@@ -42,3 +42,11 @@ Turbo overclocking path (m0bil, github.com/m0bil/imac-uefi-patches, turbo-overcl
   bins - the difference is when it happens (DXE, before the firmware hands off) or the FLEX_RATIO
   write; see ../msrprobe/README.md for the runtime measurements.
 - `1BA0062E-...` (PEIM, TE) also writes FLEX_RATIO (early CPU init).
+
+FlexCommitTest (../msrprobe/flexcommit.c), 2026-11-07, 4-core load, 0x1AD = 0x20202425 (SNBTurbo),
+PERF_CTL 32: FLEX_RATIO = 0x80000 (OC bins 4, not locked). Rewriting FLEX_RATIO on every core with
+its own value -> real ratio stays 28.00; 0x1AD back to factory + FLEX rewrite -> 28.00. So the
+FLEX_RATIO write is not what makes the firmware path work. Remaining explanation: the PCU takes the
+turbo table only before the firmware's BIOS_RESET_CPL handshake (MCHBAR 0x5DA8 bit 0, set by the
+SA init DXE DE23ACEE-...) - i.e. only firmware code (m0bil's patch / an NVRAM-driven module) can
+raise it. Flashing needs the one-time external programming (flash-protection-bypass) first.
