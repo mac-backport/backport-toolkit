@@ -86,7 +86,15 @@ depends_build       port:nasm \
                     port:python312 \
                     path:bin/pkg-config:pkgconfig \
                     path:bin/cbindgen:cbindgen \
-                    path:bin/node:nodejs26
+                    path:bin/node:nodejs26 \
+                    port:sccache
+
+# Compiler cache (sccache: C/C++ and, through mach's RUSTC_WRAPPER, Rust). A rebuild with a few
+# changed files - a revision bump - takes the rest from the cache instead of ~3.5 h on this
+# machine (rev 3, 2026-11-07, rebuilt everything for two changed files). The cache lives next
+# to MacPorts' own ccache directory, survives `port clean`, belongs to the build user; the work
+# path (and so the compile lines) stays the same between builds of this port.
+set sccache_dir     ${portdbpath}/build/.sccache
 
 # Synthetisches macOS-SDK: Bundle-Struktur, die configure akzeptiert, aber auf
 # die echten 10.9-System-Header/Frameworks zeigt (Symlinks).
@@ -183,6 +191,7 @@ post-patch {
     puts $mc "ac_add_options --disable-jemalloc"
     puts $mc "ac_add_options --without-wasm-sandboxed-libraries"
     puts $mc "ac_add_options --enable-bootstrap=no"
+    puts $mc "ac_add_options --with-ccache=${prefix}/bin/sccache"
     # WebRTC AUS (erster 10.9-Build): libwebrtc' Apple-Kamera-Obj-C-SDK
     # (sdk/objc, videocapture_objc) verlangt 10.15-AVFoundation (AVCaptureDeviceType,
     # Obj-C-Generics) -> auf 10.9 unbaubar, wird ueber OS_TARGET==Darwin statt cocoa
@@ -245,6 +254,13 @@ post-patch {
 # Synthetisches SDK anlegen: Struktur, die configure als gueltiges Apple-SDK
 # akzeptiert, aber via Symlinks auf die echten 10.9-System-Header/Frameworks zeigt.
 pre-configure {
+    # sccache's directory (see sccache_dir): outlives work directories, the build runs as the
+    # build user
+    elevateToRoot "sccache directory"
+    file mkdir ${sccache_dir}
+    file attributes ${sccache_dir} -owner ${macportsuser}
+    dropPrivileges
+
     file delete -force ${fakesdk}
     xinstall -d ${fakesdk}
     ln -s /usr    ${fakesdk}/usr
@@ -268,12 +284,17 @@ configure.pre_args  ""
 configure.args      configure
 configure.env-append \
                     MOZCONFIG=${worksrcpath}/.mozconfig \
-                    PATH=${prefix}/bin:$env(PATH)
+                    PATH=${prefix}/bin:$env(PATH) \
+                    SCCACHE_DIR=${sccache_dir} \
+                    SCCACHE_CACHE_SIZE=30G
 
 build.cmd           ${worksrcpath}/mach
 build.target        build
 build.env-append    MOZCONFIG=${worksrcpath}/.mozconfig \
-                    PATH=${prefix}/bin:$env(PATH)
+                    PATH=${prefix}/bin:$env(PATH) \
+                    SCCACHE_DIR=${sccache_dir} \
+                    SCCACHE_CACHE_SIZE=30G
+
 
 # Firefox' `mach install` honoriert KEIN DESTDIR -> stagt nichts. Wie Linux-Distros
 # den Baum manuell installieren: dist/bin -> ${prefix}/lib/firefox, plus ein
