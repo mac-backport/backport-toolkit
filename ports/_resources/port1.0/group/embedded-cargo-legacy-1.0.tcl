@@ -80,6 +80,10 @@ proc embedded_cargo::setup {} {
         build.env-append RUSTC_WRAPPER=${prefix}/bin/sccache
         build.env-append SCCACHE_DIR=${ccache_dir}/sccache
         build.env-append SCCACHE_SERVER_PORT=4227
+        # Explizit, nicht dem Default (10 GiB) ueberlassen: der Server uebernimmt
+        # die Groesse beim START. Ohne das waere sie davon abhaengig, wer den
+        # Server zufaellig zuerst hochgefahren hat.
+        build.env-append SCCACHE_CACHE_SIZE=20G
     } else {
         ui_debug "embedded-cargo-legacy: sccache nicht aktiv (fehlt oder configure.ccache aus)"
     }
