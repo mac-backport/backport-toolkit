@@ -57,5 +57,31 @@ proc embedded_cargo::setup {} {
     # Link). Linker = natives clang-22, plus statisches MLS als Link-Arg -> loest die
     # Rust-std-10.10+-Symbole in den von cargo gelinkten Executables/dylibs.
     build.env-append "RUSTFLAGS=-C linker=${cc} -C link-arg=${mls}"
+
+    # sccache als rustc-Wrapper fuer den eingebetteten Rust-Build (2026-11-07).
+    # Nur im build-Env, aus demselben Grund wie RUSTFLAGS: configure macht nur
+    # Versions-Checks, kompiliert nicht.
+    #
+    # SCCACHE_DIR liegt bewusst UNTERHALB von ccache_dir. Die MacPorts-Sandbox gibt
+    # zum Schreiben nur $workpath und -- bei eingeschaltetem ccache -- $ccache_dir
+    # frei (portsandbox.tcl). In $workpath waere der Cache nach jedem `clean` weg,
+    # also wertlos. Ist configure.ccache aus, ist der Pfad nicht beschreibbar; dann
+    # sccache lieber weglassen als still ins Leere cachen.
+    #
+    # Eigener Server-Port: der interaktive Benutzer faehrt seinen sccache-Server auf
+    # dem Standardport 4226 mit EIGENEM Cache-Verzeichnis. Ohne Trennung wuerde der
+    # Build-User sich mit dessen Server verbinden und in dessen Cache schreiben.
+    #
+    # CARGO_HOME oben zeigt in den workpath, d.h. ~/.cargo des interaktiven Benutzers
+    # (und dessen rustc-wrapper) wird hier bewusst NICHT gelesen -- deshalb muss der
+    # Wrapper hier explizit gesetzt werden.
+    global ccache_dir
+    if {[file executable ${prefix}/bin/sccache] && [option configure.ccache]} {
+        build.env-append RUSTC_WRAPPER=${prefix}/bin/sccache
+        build.env-append SCCACHE_DIR=${ccache_dir}/sccache
+        build.env-append SCCACHE_SERVER_PORT=4227
+    } else {
+        ui_debug "embedded-cargo-legacy: sccache nicht aktiv (fehlt oder configure.ccache aus)"
+    }
 }
 port::register_callback embedded_cargo::setup
