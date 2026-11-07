@@ -1,0 +1,3 @@
+# built kext binaries - rebuild from source (see each README)
+*.kext/Contents/MacOS/
+*.o
