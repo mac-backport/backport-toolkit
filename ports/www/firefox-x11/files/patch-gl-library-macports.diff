@@ -1,27 +1,54 @@
-backport-toolkit: GTK/X11 Firefox on macOS loads GL from Mesa (port mesa) under its macOS name
-and path. Upstream asks dlopen for "libGL.so.1" (Linux); on darwin that name is never found, so
-GLX, glxtest and WebGL fail ("libGL.so.1 missing"). @PREFIX@ is set in post-patch.
+backport-toolkit: GTK/X11 Firefox on macOS loads GL from Mesa (port mesa) under its macOS name.
+Upstream asks dlopen for "libGL.so.1" (Linux); on darwin that name is never found, so GLX,
+glxtest and WebGL fail ("libGL.so.1 missing"). The path is relative - Mesa's lib directory is the
+one above lib/firefox - so the tree stays relocatable (bundled with Mesa, no prefix path inside):
+GLContextProviderGLX resolves it from libxul's own location (dladdr; NSPR's PR_LoadLibrary
+refuses @-paths since it checks access() first), glxtest uses @executable_path with plain dlopen.
 --- a/gfx/gl/GLContextProviderGLX.cpp
 +++ b/gfx/gl/GLContextProviderGLX.cpp
-@@ -84,6 +84,8 @@
+@@ -24,6 +24,10 @@
+ #include "mozilla/widget/GtkCompositorWidget.h"
+ 
+ #include "prenv.h"
++#ifdef __APPLE__
++#  include <dlfcn.h>
++#  include <limits.h>
++#endif
+ #include "GLContextProvider.h"
+ #include "GLLibraryLoader.h"
+ #include "nsDebug.h"
+@@ -84,6 +88,20 @@
      const char* libGLfilename = "libGL.so.1";
  #if defined(__OpenBSD__) || defined(__NetBSD__)
      libGLfilename = "libGL.so";
 +#elif defined(__APPLE__)
-+    libGLfilename = "@PREFIX@/lib/libGL.1.dylib";
++    // Mesa's libGL one directory above this library (lib/firefox -> lib), in MacPorts and where
++    // the tree is bundled. Absolute: NSPR loads a path only if access() finds it, and access()
++    // knows no @loader_path.
++    static const char sAnchor = 0;
++    char libGLpath[PATH_MAX];
++    Dl_info self;
++    const char* slash;
++    if (dladdr(&sAnchor, &self) && self.dli_fname &&
++        (slash = strrchr(self.dli_fname, '/'))) {
++      SprintfLiteral(libGLpath, "%.*s/../libGL.1.dylib", int(slash - self.dli_fname),
++                     self.dli_fname);
++      libGLfilename = libGLpath;
++    }
  #endif
  
      const bool forceFeatureReport = false;
 --- a/toolkit/xre/glxtest/glxtest.cpp
 +++ b/toolkit/xre/glxtest/glxtest.cpp
-@@ -163,6 +163,11 @@
+@@ -165,6 +165,12 @@
  #  define LIBGLES_FILENAME "libGLESv2.so"
  #  define LIBEGL_FILENAME "libEGL.so"
  #  define LIBDRM_FILENAME "libdrm.so"
 +#elif defined(__APPLE__)
-+#  define LIBGL_FILENAME "@PREFIX@/lib/libGL.1.dylib"
-+#  define LIBGLES_FILENAME "@PREFIX@/lib/libGLESv2.2.dylib"
-+#  define LIBEGL_FILENAME "@PREFIX@/lib/libEGL.1.dylib"
++// glxtest dlopens directly: dyld resolves @executable_path (glxtest is in lib/firefox, Mesa in lib)
++#  define LIBGL_FILENAME "@executable_path/../libGL.1.dylib"
++#  define LIBGLES_FILENAME "@executable_path/../libGLESv2.2.dylib"
++#  define LIBEGL_FILENAME "@executable_path/../libEGL.1.dylib"
 +#  define LIBDRM_FILENAME "libdrm.so.2"
  #else
  #  define LIBGL_FILENAME "libGL.so.1"

@@ -29,7 +29,9 @@ version             153.1.0
 set esr             esr
 # rev1 (2026-08-31): Full-Rebuild fuer --enable-official-branding (war rev0 noch
 # ohne Branding gebaut = "Nightly"). Neue Revision -> sauberer Image-Ersatz von _0.
-revision            2
+# rev3 (2026-11-07): libGL by a relative path (patch-gl-library-macports.diff) -> the
+# tree is relocatable (Sofa bundles it with Mesa for its YouTube engine).
+revision            3
 categories          www
 platforms           darwin
 supported_archs     x86_64
@@ -101,14 +103,11 @@ patch.pre_args-append   -p1
 patchfiles          _COMPLETE-worktree-delta-20260830.diff \
                     patch-skia-sktarray-min-sizet-p1.diff
 # GL from Mesa under its macOS name and path (upstream dlopens "libGL.so.1"): GLX, glxtest and
-# WebGL on an X display (Xvfb: port xorg-server-xvfb). @PREFIX@ is set in post-patch.
+# WebGL on an X display (Xvfb: port xorg-server-xvfb). A relative path: the tree is relocatable.
 patchfiles-append   patch-gl-library-macports.diff
 
 # .mozconfig erzeugen (steuert configure/build vollstaendig)
 post-patch {
-    reinplace "s|@PREFIX@|${prefix}|g" \
-        ${worksrcpath}/gfx/gl/GLContextProviderGLX.cpp \
-        ${worksrcpath}/toolkit/xre/glxtest/glxtest.cpp
     set mls_inc     ${prefix}/include/LegacySupport
     set mls_a       ${prefix}/lib/libMacportsLegacySupport.a
 
