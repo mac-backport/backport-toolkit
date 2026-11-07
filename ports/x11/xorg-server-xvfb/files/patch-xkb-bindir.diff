@@ -1,0 +1,18 @@
+--- a/xkb/xkbInit.c
++++ b/xkb/xkbInit.c
+@@ -767,6 +767,15 @@
+             return -1;
+         }
+     }
++    /* MacPorts (relocatable bundles): where xkbcomp is, like -xkbdir for the data */
++    else if (strcmp(argv[i], "-xkbbindir") == 0) {
++        if (++i >= argc || getuid() != geteuid() || strlen(argv[i]) >= PATH_MAX) {
++            LogMessage(X_ERROR, "-xkbbindir needs a directory (not for setuid X servers)\n");
++            return -1;
++        }
++        XkbBinDirectory = argv[i];
++        return 2;
++    }
+     else if ((strncmp(argv[i], "-accessx", 8) == 0) ||
+              (strncmp(argv[i], "+accessx", 8) == 0)) {
+         int j = 1;

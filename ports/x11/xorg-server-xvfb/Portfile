@@ -20,7 +20,7 @@ github.tarball_from tarball
 
 name            xorg-server-xvfb
 version         1.20.10
-revision        1
+revision        2
 categories      x11
 license         X11
 maintainers     nomaintainer
@@ -97,6 +97,11 @@ patchfiles-append \
 # GLX loads Mesa's software driver under its macOS name (swrast_dri.dylib, not .so)
 patchfiles-append \
         patch-glx-dri-driver-dylib.diff
+# -xkbbindir: where xkbcomp is, next to -xkbdir for the keymap data - the other paths a
+# relocated Xvfb needs already have a flag or variable (-xkbdir, -fp, LIBGL_DRIVERS_PATH);
+# for Sofa's bundle (Contents/Runtime). Default unchanged (${prefix}/bin).
+patchfiles-append \
+        patch-xkb-bindir.diff
 patch.pre_args-replace  -p0 -p1
 
 use_autoreconf yes
