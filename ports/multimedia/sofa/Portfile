@@ -7,15 +7,16 @@ PortGroup           active_variants 1.1
 # backport-toolkit overlay: Sofa -- turn an old iMac into a web TV.
 # Native Cocoa smart-TV app for OS X 10.9 with the Apple Remote: YouTube, ZDF, ARD,
 # ORF, media.ccc.de. Main use case of this overlay (clang-22, curl/OpenSSL for
-# TLS 1.3, mpv/libmpv as the only player engine).
-github.setup        robertkleinschuster sofa 0.3.10 v
+# TLS 1.3, mpv/libmpv as the only player engine, YouTube through Firefox on Xvfb).
+github.setup        robertkleinschuster sofa 0.3.11 v
 github.tarball_from archive
 revision            0
 
-# Bundled into Sofa.app at build time, fetched as a checksummed distfile (no network while
-# building): the YouTube sidecar's npm dependencies exactly as in res/sofa-yt/package-lock.json
-# (release asset; tools/fetch-sofa-yt checks it against the lockfile). yt-dlp is gone since 0.3.10.
-set sofa_yt_modules sofa-yt-modules-0b2499bc14b6.tar.gz
+# Build input fetched as a checksummed distfile (no network while building): the YouTube
+# engine's npm dependencies exactly as in res/sofa-yt/package-lock.json (release asset;
+# tools/fetch-sofa-yt checks it against the lockfile), bundled by tools/build-yt-engine into
+# the engine's Firefox extension. yt-dlp is gone since 0.3.10, the node sidecar since 0.3.11.
+set sofa_yt_modules sofa-yt-modules-fd6d5b821953.tar.gz
 dist_subdir         ${name}/${version}
 master_sites-append https://github.com/robertkleinschuster/sofa/releases/download/v${version}/:sofayt
 distfiles-append    ${sofa_yt_modules}:sofayt
@@ -30,38 +31,47 @@ description         Turn an old iMac into a web TV (Apple Remote, YouTube, Media
 long_description    Sofa is a native smart-TV app for old Intel Macs on OS X 10.9, \
                     operated with the 7-button Apple Remote: YouTube (subscriptions, \
                     Watch Later, phone pairing), ZDF, ARD, ORF and media.ccc.de, \
-                    following shows, automatic downloads, H.264, VP9 and AV1 \
-                    via libmpv.
+                    following shows, downloads and pre-buffering into its own \
+                    media store, H.264, VP9 and AV1 via libmpv.
 homepage            https://github.com/robertkleinschuster/sofa
 
 checksums           ${distname}${extract.suffix} \
-                    rmd160  d303ca6c2d148c3265dff75ceed62f51027df29c \
-                    sha256  078d7e13945d8556e25930cd8c8bff7cc50b9d2deb8ce53aedebb2b7c08393c7 \
-                    size    5132380 \
+                    rmd160  2e60398f6410cea6b6c629b261858f28dec5316a \
+                    sha256  50633df7880bd74949f01f345c58bf2622d704c98651f24595f71f3ff6860fc8 \
+                    size    5511973 \
                     ${sofa_yt_modules} \
-                    rmd160  58cc46e8e7fb4aa8b1ea1912cd8eb8c342f690ca \
-                    sha256  c06ae29c199069d6cd7ff479803cf2c0823293f20ca8a2997c056063962055b8 \
-                    size    6431002
+                    rmd160  7d59ecb9df3918a1ef7f86427cbb403c330e2e0c \
+                    sha256  5ba94066577e53c74cc936298d5a56f10cae37331326dc8762fd818a960d6468 \
+                    size    6988661
 
 compiler.whitelist  macports-clang-22
 
-# nodejs26 runs the YouTube sidecar (TypeScript, native type stripping). libmpv is the only
-# player engine since 0.3.10 (linked with -lmpv; AVFoundation is gone). python314 only runs
-# build helpers (compile_commands.json, relinking). webp: Sofa decodes WebP thumbnails itself
-# (-lwebp; ImageIO on 10.9 cannot), not only through ffmpeg.
-depends_build       port:python314
+# Build tools: nodejs26 builds the YouTube engine extension (esbuild-wasm), python314 the
+# build helpers (compile_commands.json). libmpv is the only player engine (-lmpv; it brings
+# the ffmpeg libraries - Sofa itself runs no ffmpeg since 0.3.11: downloads fill its media
+# store). webp: Sofa decodes WebP thumbnails itself (ImageIO on 10.9 cannot).
+# The YouTube engine runs in Firefox on a virtual display (SFYTBrowser, docs/youtube-engine.md):
+# firefox-x11 (backport-toolkit overlay), Xvfb + xkbcomp + keymaps + the misc/cursor fonts,
+# Mesa's software GL for GLX and WebGL.
+depends_build       port:python314 \
+                    port:nodejs26
 depends_lib         port:curl \
                     port:sqlite3 \
                     port:mpv \
-                    port:ffmpeg \
-                    port:nodejs26 \
                     port:librsvg \
                     port:webp
+depends_run         port:firefox-x11 \
+                    port:xorg-server-xvfb \
+                    port:xkbcomp \
+                    port:xkeyboard-config \
+                    port:font-misc-misc \
+                    port:font-cursor-misc \
+                    port:mesa
 
 require_active_variants mpv libmpv
 
 post-patch {
-    # tools Sofa calls (ffmpeg, node, rsvg-convert) and headers/libs: MacPorts prefix
+    # tools Sofa runs (Firefox, Xvfb, rsvg-convert) and headers/libs: MacPorts prefix
     foreach f [glob ${worksrcpath}/src/*/*.m ${worksrcpath}/helper/*.m] {
         reinplace -q "s|/opt/local|${prefix}|g" ${f}
     }
@@ -75,7 +85,8 @@ use_configure       no
 build.args          CC=${configure.cc} MP=${prefix}
 build.args-append   PYTHON=${prefix}/bin/python3.14
 build.env-append    SOFA_DISTFILES=${distpath} \
-                    NODE_BIN=${prefix}/bin
+                    NODE_BIN=${prefix}/bin \
+                    SOFA_NODE=${prefix}/bin/node
 
 destroot {
     xinstall -d ${destroot}${applications_dir}
