@@ -1,0 +1,52 @@
+--- demux/demux_mkv.c	2026-11-08 01:03:04.000000000 +0100
++++ demux/demux_mkv.c	2026-11-08 01:03:23.000000000 +0100
+@@ -239,6 +239,7 @@
+     double subtitle_preroll_secs_index;
+     int probe_duration;
+     bool probe_start_time;
++    bool probe_image;
+     bool crop_compat;
+ };
+ 
+@@ -253,6 +254,7 @@
+         {"probe-video-duration", OPT_CHOICE(probe_duration,
+             {"no", 0}, {"yes", 1}, {"full", 2})},
+         {"probe-start-time", OPT_BOOL(probe_start_time)},
++        {"probe-image", OPT_BOOL(probe_image)},
+         {"crop-compat", OPT_BOOL(crop_compat)},
+         {0}
+     },
+@@ -262,6 +264,7 @@
+         .subtitle_preroll_secs = 1.0,
+         .subtitle_preroll_secs_index = 10.0,
+         .probe_start_time = true,
++        .probe_image = true,
+         .crop_compat = true,
+     },
+     .change_flags = UPDATE_DEMUXER,
+@@ -2524,7 +2527,8 @@
+     if (mkv_d->opts->probe_duration)
+         probe_last_timestamp(demuxer, start_pos);
+     probe_x264_garbage(demuxer);
+-    probe_if_image(demuxer);
++    if (mkv_d->opts->probe_image)
++        probe_if_image(demuxer);
+ 
+     return 0;
+ }
+--- DOCS/man/options.rst	2026-11-08 01:03:04.000000000 +0100
++++ DOCS/man/options.rst	2026-11-08 01:03:23.000000000 +0100
+@@ -4097,6 +4097,13 @@
+     also reads the first timestamp, which may increase latency by one frame
+     (which may be relevant for live streams).
+ 
++``--demuxer-mkv-probe-image=<yes|no>``
++    Check whether a video track holds a single still image (default: yes). This
++    reads the first video packets when the file is opened. With ``no``, opening
++    reads nothing past the headers, so playback that starts elsewhere (``--start``)
++    does not need the beginning of a streamed file; a cover-art-like track is then
++    treated as video.
++
+ ``--demuxer-mkv-probe-video-duration=<yes|no|full>``
+     When opening the file, seek to the end of it, and check what timestamp the
+     last video packet has, and report that as file duration. This is strictly
