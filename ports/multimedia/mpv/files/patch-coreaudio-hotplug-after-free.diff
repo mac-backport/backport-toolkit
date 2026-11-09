@@ -1,0 +1,76 @@
+--- audio/out/ao_coreaudio.c	2026-11-09 21:52:11.000000000 +0100
++++ audio/out/ao_coreaudio.c	2026-11-09 21:53:12.000000000 +0100
+@@ -15,6 +15,7 @@
+  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
+  */
+ 
++#include <Block.h>   // backport-toolkit overlay: Block_copy for the device listener
+ #include <CoreAudio/HostTime.h>
+ #include <libavutil/mathematics.h>
+ 
+@@ -67,6 +68,10 @@
+     dispatch_queue_t queue;
+ 
+     int hotplug_cb_registration_times;
++    // backport-toolkit overlay: the device listener as a block on a queue of its own (see
++    // register_hotplug_cb)
++    dispatch_queue_t hotplug_queue;
++    AudioObjectPropertyListenerBlock hotplug_block;
+ };
+ 
+ static int64_t ca_get_hardware_latency(struct ao *ao) {
+@@ -534,6 +539,16 @@
+     if (p->hotplug_cb_registration_times++)
+         return true;
+ 
++    // backport-toolkit overlay: a listener function with the raw ao pointer is called on a queue
++    // the HAL chooses (on 10.9 the main queue): a call already queued when uninit removed the
++    // listener ran on the freed ao - Sofa crashed in hotplug_cb -> mp_msg_level (2026-11-08).
++    // As a block on our own serial queue, uninit can wait for the calls already queued
++    // (unregister_hotplug_cb). Block listeners exist since 10.7.
++    p->hotplug_queue = dispatch_queue_create("mpv.coreaudio.hotplug", DISPATCH_QUEUE_SERIAL);
++    p->hotplug_block = Block_copy(^(UInt32 naddr, const AudioObjectPropertyAddress addr[]) {
++        hotplug_cb(kAudioObjectSystemObject, naddr, addr, ao);
++    });
++
+     OSStatus err = noErr;
+     for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
+         AudioObjectPropertyAddress addr = {
+@@ -541,8 +556,8 @@
+             kAudioObjectPropertyScopeGlobal,
+             kAudioObjectPropertyElementMain
+         };
+-        err = AudioObjectAddPropertyListener(
+-            kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
++        err = AudioObjectAddPropertyListenerBlock(
++            kAudioObjectSystemObject, &addr, p->hotplug_queue, p->hotplug_block);
+         if (err != noErr) {
+             char *c1 = mp_tag_str(hotplug_properties[i]);
+             char *c2 = mp_tag_str(err);
+@@ -571,14 +586,24 @@
+             kAudioObjectPropertyScopeGlobal,
+             kAudioObjectPropertyElementMain
+         };
+-        err = AudioObjectRemovePropertyListener(
+-            kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
++        err = AudioObjectRemovePropertyListenerBlock(
++            kAudioObjectSystemObject, &addr, p->hotplug_queue, p->hotplug_block);
+         if (err != noErr) {
+             char *c1 = mp_tag_str(hotplug_properties[i]);
+             char *c2 = mp_tag_str(err);
+             MP_ERR(ao, "failed to set device listener %s (%s)", c1, c2);
+         }
+     }
++    // backport-toolkit overlay: no call may come after this - wait for those already queued
++    if (p->hotplug_queue) {
++        dispatch_sync(p->hotplug_queue, ^{});
++        dispatch_release(p->hotplug_queue);
++        p->hotplug_queue = NULL;
++    }
++    if (p->hotplug_block) {
++        Block_release(p->hotplug_block);
++        p->hotplug_block = NULL;
++    }
+ }
+ 
+ #define OPT_BASE_STRUCT struct priv
