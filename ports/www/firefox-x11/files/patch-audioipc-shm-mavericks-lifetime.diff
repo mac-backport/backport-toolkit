@@ -1,0 +1,72 @@
+--- a/third_party/rust/audioipc2/src/shm.rs
++++ b/third_party/rust/audioipc2/src/shm.rs
+@@ -65,13 +65,15 @@
+ 
+     #[cfg(not(target_os = "android"))]
+     fn open_shm_file(id: &str, size: usize) -> Result<File> {
+-        let file = open_shm_file_impl(id)?;
+-        allocate_file(&file, size)?;
++        let (file, size_already_set) = open_shm_file_impl(id, size)?;
++        if !size_already_set {
++            allocate_file(&file, size)?;
++        }
+         Ok(file)
+     }
+ 
+     #[cfg(not(target_os = "android"))]
+-    fn open_shm_file_impl(id: &str) -> Result<File> {
++    fn open_shm_file_impl(id: &str, _size: usize) -> Result<(File, bool)> {
+         use std::env::temp_dir;
+         use std::fs::{remove_file, OpenOptions};
+ 
+@@ -82,7 +84,7 @@
+             unsafe {
+                 let r = libc::syscall(libc::SYS_memfd_create, id_cstring.as_ptr(), 0);
+                 if r >= 0 {
+-                    return Ok(File::from_raw_fd(r.try_into().unwrap()));
++                    return Ok((File::from_raw_fd(r.try_into().unwrap()), false));
+                 }
+             }
+ 
+@@ -96,7 +98,7 @@
+                 .open(&path)
+             {
+                 let _ = remove_file(&path);
+-                return Ok(file);
++                return Ok((file, false));
+             }
+         }
+ 
+@@ -107,8 +109,15 @@
+                 0o600,
+             );
+             if fd >= 0 {
++                let file = File::from_raw_fd(fd);
++                // Mavericks loses PSHM_REMOVED in ftruncate. Size before unlink,
++                // including the readonly/freezable lifetime of the backing object.
++                #[cfg(target_os = "macos")]
++                let allocation = allocate_file(&file, _size);
+                 libc::shm_unlink(id_cstring.as_ptr());
+-                return Ok(File::from_raw_fd(fd));
++                #[cfg(target_os = "macos")]
++                allocation?;
++                return Ok((file, cfg!(target_os = "macos")));
+             }
+         }
+ 
+@@ -122,7 +131,7 @@
+             .open(&path)?;
+ 
+         let _ = remove_file(&path);
+-        Ok(file)
++        Ok((file, false))
+     }
+ 
+     #[cfg(not(target_os = "android"))]
+--- a/third_party/rust/audioipc2/.cargo-checksum.json
++++ b/third_party/rust/audioipc2/.cargo-checksum.json
+@@ -1 +1 @@
+-{"files":{"Cargo.toml":"8a0b821de1bc37927948f99804e3cc950d0d757f92bf14122f07bfe4a809f16e","benches/serialization.rs":"495e9128fb7892c3460bf55c6dc56a3d9e8853331f566d43231e30fad2c00ff4","src/codec.rs":"49120cd77f09e4acace1629936157fc9afa0a846c9018ad2dd021b5f0e6577fd","src/errors.rs":"36fe5299aee55761366ddc5dcf2f6fb5d81d8a718c59394b6baeb4075fdfc1a7","src/ipccore.rs":"a06cf09aa600df1280538e7946223ab979f088848213fc9c1a394af312f81fbd","src/lib.rs":"98ba1fe514326d2ef374c9ccc3a7125836cdcc3abe62abcf9a4af0084205538a","src/messages.rs":"d294f24ce018603d2e141af3a06a983421a8da191275937bd2cfa8523064def1","src/rpccore.rs":"058477df2304b4d8c5d1a347663301bcdea3f772762f806963e63a0c8df9ea73","src/shm.rs":"61c9f5d158914cb0ed34d7ce898d1ab24d1a892c68ee0406ff03d01e5c172d32","src/sys/mod.rs":"e6fa1d260abf093e1f7b50185195e2d3aee0eb8c9774c6f253953b5896d838f3","src/sys/unix/cmsg.rs":"e7b7154d55ce57e16ba93d4982630077bf6c70fa56e572956f14ae15aa43cb4c","src/sys/unix/mod.rs":"de0cd5c7a44cfd7c1f5b8cd0260089dc7245373ff9baa0ce44acfdc2d407a9d1","src/sys/unix/msg.rs":"25244de3eba920fa42e032f8fa4ea4913a9fdeb5124ade61e707f6cc6dd946b0","src/sys/windows/mod.rs":"7eaabb76e62c6962b636320e2bbf79a78fce61659c799a798f7dd6d56b0be8a1"},"package":null}
+\ No newline at end of file
++{"files":{"Cargo.toml":"8a0b821de1bc37927948f99804e3cc950d0d757f92bf14122f07bfe4a809f16e","benches/serialization.rs":"495e9128fb7892c3460bf55c6dc56a3d9e8853331f566d43231e30fad2c00ff4","src/codec.rs":"49120cd77f09e4acace1629936157fc9afa0a846c9018ad2dd021b5f0e6577fd","src/errors.rs":"36fe5299aee55761366ddc5dcf2f6fb5d81d8a718c59394b6baeb4075fdfc1a7","src/ipccore.rs":"a06cf09aa600df1280538e7946223ab979f088848213fc9c1a394af312f81fbd","src/lib.rs":"98ba1fe514326d2ef374c9ccc3a7125836cdcc3abe62abcf9a4af0084205538a","src/messages.rs":"d294f24ce018603d2e141af3a06a983421a8da191275937bd2cfa8523064def1","src/rpccore.rs":"058477df2304b4d8c5d1a347663301bcdea3f772762f806963e63a0c8df9ea73","src/shm.rs":"5778d98cc33b134fce0e34fd81ba78f60b0719d6ae05926c8b0c53e2514ab20a","src/sys/mod.rs":"e6fa1d260abf093e1f7b50185195e2d3aee0eb8c9774c6f253953b5896d838f3","src/sys/unix/cmsg.rs":"e7b7154d55ce57e16ba93d4982630077bf6c70fa56e572956f14ae15aa43cb4c","src/sys/unix/mod.rs":"de0cd5c7a44cfd7c1f5b8cd0260089dc7245373ff9baa0ce44acfdc2d407a9d1","src/sys/unix/msg.rs":"25244de3eba920fa42e032f8fa4ea4913a9fdeb5124ade61e707f6cc6dd946b0","src/sys/windows/mod.rs":"7eaabb76e62c6962b636320e2bbf79a78fce61659c799a798f7dd6d56b0be8a1"},"package":null}
+\ No newline at end of file

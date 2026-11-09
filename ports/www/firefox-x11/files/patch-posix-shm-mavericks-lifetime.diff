@@ -1,0 +1,52 @@
+--- a/ipc/glue/SharedMemoryPlatform_posix.cpp
++++ b/ipc/glue/SharedMemoryPlatform_posix.cpp
+@@ -205,6 +205,7 @@
+ 
+   mozilla::UniqueFileHandle fd;
+   mozilla::UniqueFileHandle frozen_fd;
++  bool sizeAlreadySet = false;
+ 
+ #ifdef USE_MEMFD_CREATE
+   if (auto flags = HaveMemfd()) {
+@@ -251,9 +252,22 @@
+             return Nothing();
+           }
+         }
++#ifdef XP_DARWIN
++        // Mavericks pshm_truncate assigns PSHM_ALLOCATED, losing PSHM_REMOVED.
++        // Unlinking before sizing therefore leaks the backing object after close.
++        // Size while named, then unlink; later common sizing must not repeat it.
++        if (HANDLE_EINTR(ftruncate(fd.get(), static_cast<off_t>(aSize))) != 0) {
++          int truncateError = errno;
++          shm_unlink(name.c_str());
++          MOZ_LOG_FMT(gSharedMemoryLog, LogLevel::Warning,
++                      "failed to size Darwin shm: {}", strerror(truncateError));
++          return Nothing();
++        }
++        sizeAlreadySet = true;
++#endif
+         if (shm_unlink(name.c_str()) != 0) {
+           // This shouldn't happen, but if it does: assume the file is
+-          // in fact leaked, and bail out now while it's still 0-length.
++          // in fact leaked, and bail out rather than passing it to a reader.
+           DLOG(FATAL) << "failed to unlink shm: " << strerror(errno);
+           return Nothing();
+         }
+@@ -272,7 +286,7 @@
+   // Using posix_fallocate will ensure that there's actually space for this
+   // file. Otherwise we end up with a sparse file that can give SIGBUS if we
+   // run out of space while writing to it.  (This doesn't apply to memfd.)
+-  if (!HaveMemfd()) {
++  if (!HaveMemfd() && !sizeAlreadySet) {
+     int rv;
+     // Avoid repeated interruptions of posix_fallocate by the profiler's
+     // SIGPROF sampling signal. Indicating "thread sleep" here means we'll
+@@ -301,7 +315,7 @@
+   // If posix_fallocate isn't supported / relevant for this type of
+   // file (either failed with an expected error, or wasn't attempted),
+   // then set the size with ftruncate:
+-  if (fallocateError != mozilla::Some(0)) {
++  if (!sizeAlreadySet && fallocateError != mozilla::Some(0)) {
+     int rv = HANDLE_EINTR(ftruncate(fd.get(), static_cast<off_t>(aSize)));
+     if (rv != 0) {
+       int ftruncate_errno = errno;

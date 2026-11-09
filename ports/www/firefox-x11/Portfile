@@ -31,7 +31,10 @@ set esr             esr
 # ohne Branding gebaut = "Nightly"). Neue Revision -> sauberer Image-Ersatz von _0.
 # rev3 (2026-11-07): libGL by a relative path (patch-gl-library-macports.diff) -> the
 # tree is relocatable (Sofa bundles it with Mesa for its YouTube engine).
-revision            3
+# rev4 (2026-11-09): size POSIX shared memory before unlink on Darwin; avoids
+# Mavericks pshm_truncate dropping PSHM_REMOVED and permanently retaining buffers.
+# rev5 (2026-11-09): keep Darwin SCM_RIGHTS/EMSGSIZE retry handling on GTK.
+revision            5
 categories          www
 platforms           darwin
 supported_archs     x86_64
@@ -91,10 +94,10 @@ depends_build       port:nasm \
 
 # Compiler cache (sccache: C/C++ and, through mach's RUSTC_WRAPPER, Rust). A rebuild with a few
 # changed files - a revision bump - takes the rest from the cache instead of ~3.5 h on this
-# machine (rev 3, 2026-11-07, rebuilt everything for two changed files). The cache lives next
-# to MacPorts' own ccache directory, survives `port clean`, belongs to the build user; the work
+# machine (rev 3, 2026-11-07, rebuilt everything for two changed files). The cache lives under
+# MacPorts' sandbox-approved ccache directory, survives `port clean`, belongs to the build user; the work
 # path (and so the compile lines) stays the same between builds of this port.
-set sccache_dir     ${portdbpath}/build/.sccache
+set sccache_dir     ${ccache_dir}/sccache
 
 # Synthetisches macOS-SDK: Bundle-Struktur, die configure akzeptiert, aber auf
 # die echten 10.9-System-Header/Frameworks zeigt (Symlinks).
@@ -112,7 +115,10 @@ patchfiles          _COMPLETE-worktree-delta-20260830.diff \
                     patch-skia-sktarray-min-sizet-p1.diff
 # GL from Mesa under its macOS name and path (upstream dlopens "libGL.so.1"): GLX, glxtest and
 # WebGL on an X display (Xvfb: port xorg-server-xvfb). A relative path: the tree is relocatable.
-patchfiles-append   patch-gl-library-macports.diff
+patchfiles-append   patch-gl-library-macports.diff \
+                    patch-posix-shm-mavericks-lifetime.diff \
+                    patch-audioipc-shm-mavericks-lifetime.diff \
+                    patch-darwin-gtk-ipc-emsgsize.diff
 
 # .mozconfig erzeugen (steuert configure/build vollstaendig)
 post-patch {
@@ -260,6 +266,7 @@ pre-configure {
     file mkdir ${sccache_dir}
     file attributes ${sccache_dir} -owner ${macportsuser}
     dropPrivileges
+    system "${prefix}/bin/python3.12 ${filespath}/start-sccache.py ${prefix}/bin/sccache ${sccache_dir}"
 
     file delete -force ${fakesdk}
     xinstall -d ${fakesdk}
@@ -278,6 +285,10 @@ pre-configure {
 }
 
 # Configure + Build ueber ./mach (mozconfig steuert alles)
+pre-build {
+    system "${prefix}/bin/python3.12 ${filespath}/start-sccache.py ${prefix}/bin/sccache ${sccache_dir}"
+}
+
 use_configure       yes
 configure.cmd       ${worksrcpath}/mach
 configure.pre_args  ""
@@ -286,14 +297,16 @@ configure.env-append \
                     MOZCONFIG=${worksrcpath}/.mozconfig \
                     PATH=${prefix}/bin:$env(PATH) \
                     SCCACHE_DIR=${sccache_dir} \
-                    SCCACHE_CACHE_SIZE=30G
+                    SCCACHE_SERVER_PORT=4227 \
+                    SCCACHE_CACHE_SIZE=20G
 
 build.cmd           ${worksrcpath}/mach
 build.target        build
 build.env-append    MOZCONFIG=${worksrcpath}/.mozconfig \
                     PATH=${prefix}/bin:$env(PATH) \
                     SCCACHE_DIR=${sccache_dir} \
-                    SCCACHE_CACHE_SIZE=30G
+                    SCCACHE_SERVER_PORT=4227 \
+                    SCCACHE_CACHE_SIZE=20G
 
 
 # Firefox' `mach install` honoriert KEIN DESTDIR -> stagt nichts. Wie Linux-Distros
