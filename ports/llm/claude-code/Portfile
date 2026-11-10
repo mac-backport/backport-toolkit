@@ -15,6 +15,10 @@
 #   [10.9] libS.dylib = Recaulk (Mavergreen) statt altem libSystemWrapper: dessen
 #          kevent64-Stash verlor EVFILT_READ-Events -> "Connection dropped (ECONNRESET)"
 #          (61/90 neue TLS-Verbindungen 16 s haengend; mit Recaulk 0). Quellbuild: TODO.md.
+#   [10.9] add_strong_new_delete (aus Quelle): weak-bind "non-weak definition" fuer claudes
+#          operator new/delete -> der 10.9-dyld bindet libc++ an claudes Allokator (macOS 12+
+#          tut das per __lcxx_override); sonst gibt libc++ claude-Objekte per System-free frei
+#          (std::thread __thread_struct: SIGABRT bei jedem Ende des eingebauten ugrep)
 # Update (Doktrin: immer -n): version-Zeile setzen -> `sudo port bump claude-code`
 #          -> `sudo port -n upgrade --force claude-code`. Rollback: port activate @alt.
 # Hintergrund libavxemu/libdropinsert: files/mavericks + NOTES-libavxemu-env-leak.md
@@ -23,7 +27,7 @@ PortSystem          1.0
 
 name                claude-code
 version             2.1.316
-revision            1
+revision            2
 # Mavergreen/recaulk-Release (libRecaulkSystem.dylib, Symbol-Obermenge von libSystemWrapper)
 set recaulk_version 20261025.5
 
@@ -94,6 +98,7 @@ build {
     system -W ${worksrcpath} "/usr/bin/gzip -dc ${mav}/libicucoreWrapper.dylib.gz > libI.dylib"
     # libdropinsert aus Quelle (entfernt DYLD_INSERT_LIBRARIES fuer Kindprozesse)
     system -W ${worksrcpath} "/usr/bin/cc -dynamiclib -O2 -o libdropinsert.dylib ${mav}/libdropinsert.c"
+    system -W ${workpath} "/usr/bin/cc -O2 -Wall -o add_strong_new_delete ${mav}/add_strong_new_delete.c"
     # Binary patchen: patch_macho -> add_version_min -> change_dylib (KEIN libA,
     # libavxemu laeuft per Insert; Linken haengt beim Start -- verifiziert 2026-09-02)
     system -W ${worksrcpath} "${mav}/patch_macho claude claude.mf"
@@ -102,6 +107,8 @@ build {
         -change /usr/lib/libSystem.B.dylib  @loader_path/libS.dylib \
         -change /usr/lib/libicucore.A.dylib @loader_path/libI.dylib \
         -change /usr/lib/libc++.1.dylib     @loader_path/libc++.1.dylib"
+    # libc++ an claudes operator new/delete binden (siehe Kopf; nach change_dylib: haengt an __LINKEDIT an)
+    system -W ${worksrcpath} "${workpath}/add_strong_new_delete claude.mf"
     file delete ${worksrcpath}/claude
     file rename ${worksrcpath}/claude.mf ${worksrcpath}/claude
     system -W ${worksrcpath} "/bin/chmod +x claude"
