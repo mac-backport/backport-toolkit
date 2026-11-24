@@ -12,7 +12,7 @@ Offene Punkte (Stand 2026-11-04). Erledigtes abhaken, nicht löschen.
       drydock/shipyard von Mavergreen) statt Release-Binary; danach `files/mavericks/libSystemWrapper.dylib` löschen.
       Recherchiert 2026-11-04, **zurückgestellt**: braucht Mavergreens shipyard (SDK-Fetch) + drydock,
       Recaulk selbst baut mit seinem Release-Binary; das Release-pkg ist gegen Upstream-SHA256SUMS geprüft.
-- [x] **`net/bgutil-pot-server`** 2.0.2 (2026-11-04): offline gebaut (vendor node_modules am Release
+- [x] **`net/bgutil-pot-server`** 2.0.2 (2026-11-04; **entfernt 2026-11-24**, Sofa braucht ihn nicht mehr): offline gebaut (vendor node_modules am Release
       `distfiles`, Node-Header-Distfile für node-gyp, canvas nativ), LaunchDaemon als `nobody` nur auf
       127.0.0.1:4416 (Handaufbau 1.3.1 lauschte auf allen Interfaces → nach
       /Library/LaunchDaemons/disabled-handbuilt/). Update: neue Version → vendor-Tarball neu
