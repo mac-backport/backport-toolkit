@@ -26,8 +26,8 @@
 PortSystem          1.0
 
 name                claude-code
-version             2.1.316
-revision            2
+version             2.1.332
+revision            0
 # Mavergreen/recaulk-Release (libRecaulkSystem.dylib, Symbol-Obermenge von libSystemWrapper)
 set recaulk_version 20261025.5
 
@@ -62,9 +62,9 @@ master_sites-delete ${claude_code_releases}/${version}/darwin-${arch_classifier}
 master_sites-append ${claude_code_releases}/${version}/darwin-${arch_classifier}/:main
 
 checksums           ${distname} \
-                    rmd160  69abbfb3164d814690d19aa4bcd6716c69c87f86 \
-                    sha256  203d22fbafdab9f6b0cda962ec573e32ab970894c63b1dfb0409378f28b9c344 \
-                    size    324381312 \
+                    rmd160  5edc12ed6ed5c77d01d2877721fc412758c7ec51 \
+                    sha256  3ceb285194091d45b150561ac5d58ab5a58cddcdc6d086f883039a652c037cfa \
+                    size    397278064 \
                     recaulk-${recaulk_version}.pkg \
                     rmd160  e20e6a218e3828222ffdc079bccd1dc6ef4c7e83 \
                     sha256  6fa1e8a2d6198cb29cda2c1c98606f41e9dfb7f66e18b690bb97da3bf07ec5a1 \
