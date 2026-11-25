@@ -9,7 +9,7 @@ PortGroup           golang 1.0
 # (go-1.27), CGO off, LegacySupport linked statically - like net/tailscale.
 legacysupport.use_static yes
 
-go.setup            github.com/cli/cli 2.103.3 v
+go.setup            github.com/cli/cli 2.105.0 v
 go.package          github.com/cli/cli/v2
 go.offline_build    yes
 go.bin              ${prefix}/bin/go-1.27
@@ -41,13 +41,13 @@ master_sites-append https://github.com/mac-backport/backport-toolkit/releases/do
 distfiles-append    ${name}-${version}-vendor.tar.gz:vendor
 
 checksums           cli-${version}.tar.gz \
-                    rmd160  ffedeb2eec2d99a7436a6ab9fe611ee0535f16de \
-                    sha256  bb148138a3a2fe023e57c78042fe3b42fc09171c0e8fff4cf983b227b7a2eade \
-                    size    15473846 \
+                    rmd160  baed9406205c32e1829b8ffd0661baff86a54f29 \
+                    sha256  3a8fddd2ca0f7c96983a251d3971a84ef042b230b26ca696e5e6ed811cd0ed8d \
+                    size    15822703 \
                     ${name}-${version}-vendor.tar.gz \
-                    rmd160  5295c02722a1b108260d13d220974c495180024c \
-                    sha256  abb1fb579b540030480ba40f6134738f1346728fc9c1923eeef5986d12aad95d \
-                    size    9344417
+                    rmd160  65cbb78398df04baacdd49c9ec1e4245f5b81abb \
+                    sha256  1245ef841c3768ca10b04b20d107bedbe5be15b0770319f1f9eb31586f93bc4c \
+                    size    9362228
 
 depends_build-delete port:go
 depends_build-append port:go-1.27 port:legacy-support
@@ -68,7 +68,7 @@ build.pre_args-append \
     -ldflags \" \
         -extldflags=${prefix}/lib/libMacportsLegacySupport.a \
         -X github.com/cli/cli/v2/internal/build.Version=${version} \
-        -X github.com/cli/cli/v2/internal/build.Date=2026-11-04 \
+        -X github.com/cli/cli/v2/internal/build.Date=2026-11-18 \
     \"
 build.args          -o bin/${name} ./cmd/${name}
 
