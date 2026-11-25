@@ -1,0 +1,36 @@
+--- a/src/fsevent.rs
++++ b/src/fsevent.rs
+@@ -21,9 +21,10 @@
+ use fsevent_sys as fs;
+ use fsevent_sys::core_foundation as cf;
+ use std::collections::HashMap;
+-use std::ffi::CStr;
++use std::ffi::{CStr, OsStr};
+ use std::fmt;
+ use std::os::raw;
++use std::os::unix::ffi::OsStrExt;
+ use std::path::{Path, PathBuf};
+ use std::ptr;
+ use std::sync::{Arc, Mutex};
+@@ -536,15 +537,14 @@
+     let event_handler = &(*info).event_handler;
+ 
+     for p in 0..num_events {
+-        let path = CStr::from_ptr(*event_paths.add(p))
+-            .to_str()
+-            .expect("Invalid UTF8 string.");
+-        let path = PathBuf::from(path);
++        // Paths are not guaranteed to be valid UTF-8; keep them as raw bytes.
++        // (Backport of notify 9.0: a panic here aborts, the callback cannot unwind.)
++        let path = CStr::from_ptr(*event_paths.add(p));
++        let path = PathBuf::from(OsStr::from_bytes(path.to_bytes()));
+ 
+         let flag = *event_flags.add(p);
+-        let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
+-            panic!("Unable to decode StreamFlags: {}", flag);
+-        });
++        // FSEventStreamEventFlags is an extensible bitfield; tolerate unknown flags.
++        let flag = StreamFlags::from_bits_truncate(flag);
+ 
+         let mut handle_event = false;
+         for (p, r) in &(*info).recursive_info {

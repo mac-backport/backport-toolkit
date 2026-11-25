@@ -5,7 +5,7 @@ PortSystem          1.0
 PortGroup           github 1.0
 
 # Version = Codex rust-Release-Tag (rust-vX.Y.Z). Bei Updates hier bumpen + checksums.
-github.setup        openai codex 0.166.0 rust-v
+github.setup        openai codex 0.172.0 rust-v
 revision            0
 # Source-Archiv (Tag-Tarball), nicht ein Release-Asset:
 github.tarball_from archive
@@ -19,9 +19,9 @@ description         OpenAI Codex CLI (Rust) fuer macOS 10.9
 long_description    ${description}, gebaut mit nativem rust/cargo 1.95 (clang-22 + \
                     statisches MLS) und nativem protoc aus protobuf5-cpp.
 
-checksums           rmd160  96ef9159822a26e343510cefbed3872b1afd0c39 \
-                    sha256  718c86dcd7104919f2820aa79db0fa0083b5f240aa16da704f43e4acf7b544e5 \
-                    size    18852337
+checksums           rmd160  c972dcc957e5e9fd2a653544d9cc2a8cf18512f6 \
+                    sha256  8a4a4bd174f87394ed7a63c8fe1bf8207d9d691468e465fe56e418018ecc5549 \
+                    size    21016626
 
 # Native Toolchain (rust/cargo) + natives protoc + modernes C++/clang-22.
 depends_build       port:cargo port:rust port:protobuf5-cpp port:clang-22 port:git
@@ -92,6 +92,17 @@ pre-build {
     # Fuer fetch das native cargo direkt verwenden (DYLD-frei, laeuft nativ auf 10.9).
     system -W ${cargodir} "CARGO_HOME=${workpath}/cargo-home CARGO_NET_GIT_FETCH_WITH_CLI=true \
         ${prefix}/bin/cargo fetch"
+    # backport-toolkit overlay: notify 8.2.x panics in its FSEvents callback on a
+    # non-UTF-8 path ("Invalid UTF8 string.", fsevent.rs:541). The callback is
+    # extern "C" and cannot unwind -> abort (SIGABRT in "notify-rs fsevents loop",
+    # seen on 10.9 in the app-server daemon). Backport notify 9.0's fix: keep the
+    # path as raw bytes, tolerate unknown flag bits. Remove once codex uses
+    # notify >= 9.0 (fails loudly here if the locked notify version changes).
+    set notifydirs [glob -nocomplain -type d ${workpath}/cargo-home/registry/src/*/notify-8.2.0]
+    if {[llength ${notifydirs}] != 1} {
+        return -code error "notify-8.2.0 not found in the cargo registry; re-check files/notify-8.2.0-fsevent-non-utf8.patch"
+    }
+    system -W [lindex ${notifydirs} 0] "/usr/bin/patch -p1 -N < ${filespath}/notify-8.2.0-fsevent-non-utf8.patch"
 }
 
 set libexecdir      ${prefix}/libexec/codex
