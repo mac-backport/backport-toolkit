@@ -157,4 +157,12 @@ post-destroot {
     system "${filespath}/codex-macos109-audit.sh ${destroot}${libexecdir}"
 }
 
+notes "
+A running app-server daemon keeps using its own copy of the previous package.
+After an upgrade, switch it to this build with:
+    codex app-server daemon update --from-cli --yes
+(Plain 'codex app-server daemon update' runs the upstream online updater,
+which cannot install on macOS 10.9.)
+"
+
 livecheck.type      none
